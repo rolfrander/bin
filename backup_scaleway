@@ -1,0 +1,11 @@
+#!/bin/bash
+
+cd /data/img
+if [ -z "$1" -o \! -d "$1" ]
+then
+    echo "Usage: $0 [year]"
+    exit 1
+fi
+
+zip -r -1 "$1.zip" "$1"
+rclone copy --progress --s3-storage-class=GLACIER "$1.zip" "scaleway:rolfrander-img"
