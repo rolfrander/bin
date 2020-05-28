@@ -1,0 +1,131 @@
+#!/usr/bin/python3
+
+import piexif
+import inotify.adapters
+import inotify.constants
+import os.path
+import os
+import pwd
+import grp
+import argparse
+import re
+from datetime import date
+import syslog
+import daemon
+
+WRITE_MASK = inotify.constants.IN_CLOSE_WRITE | inotify.constants.IN_MOVED_TO
+
+re_date = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d) ")
+
+log_with_syslog = False
+
+def initlog(use_syslog):
+    global log_with_syslog
+    log_with_syslog = use_syslog
+    if log_with_syslog:
+        syslog.openlog(ident="cpimg3", logoption=syslog.LOG_PID, facility=syslog.LOG_LOCAL0)
+    else:
+        print("logging to stdout")
+        
+def log(message):
+    if log_with_syslog:
+        syslog.syslog(message)
+    else:
+        print(message)
+
+def makedirs(directory, uid, gid, mode):
+    if os.path.exists(directory):
+        if not os.path.isdir(directory):
+            raise Exception("exists but is not a directory: {}".format(directory))
+        return
+    makedirs(os.path.dirname(directory), uid, gid, mode)
+    base = os.path.basename(directory)
+    if base:
+        os.mkdir(directory, mode)
+        os.chown(directory, uid, gid)
+
+def move(source, target, uid, gid):
+    log("move {} to {}".format(source, target))
+    makedirs(target, uid, gid, mode=0o775)
+    
+    filename = os.path.basename(source).lower()
+    dst = os.path.join(target, filename)
+
+    if os.path.exists(dst):
+        log("target exists: {}".format(dst))
+    else:
+        os.rename(source, dst)
+        os.chown(dst, uid, gid)
+        os.chmod(dst, 0o444)
+        
+def is_img(filename):
+    if os.path.isfile(filename):
+        filename_lower = filename.lower()
+        return filename_lower.endswith(".jpg") or filename_lower.endswith(".cr2")
+    return false
+
+def get_date_subdir(filename):
+    # check exif-data
+    try:
+        image_data=piexif.load(filename)
+        if 'Exif' in image_data:
+            if piexif.ExifIFD.DateTimeOriginal in image_data['Exif']:
+                exifDate = image_data['Exif'][piexif.ExifIFD.DateTimeDigitized].decode("ASCII")
+                return "/".join(exifDate.split(" ")[0].split(":"))
+    except:
+        pass
+    
+    # if not, check filename
+    basename = os.path.basename(filename)
+
+    global re_date
+    match = re_date.match(basename)
+    if match:
+        return "{}/{}/{}".format(match.group(1), match.group(2), match.group(3))
+
+    # otherwise, check filesystem
+    fileinfo = os.stat(filename)
+    return date.fromtimestamp(fileinfo.st_mtime).strftime("%Y/%m/%d")
+    
+def listen(source_directories, target_directory, uid, gid):
+    log("listening in {}, moving to {}, for {}:{}". format(source_directories, target_directory, uid, gid))
+    i = inotify.adapters.Inotify()
+
+    for d in source_directories:
+        i.add_watch(d)
+
+    for event in i.event_gen(yield_nones=False):
+        ((wd, mask, cookie, l), type_names, path, filename) = event
+        # print("{}: {}/{}".format(type_names, path, filename))
+        if (mask & WRITE_MASK) > 0:
+            fullpath = os.path.join(path, filename)
+            if is_img(fullpath):
+                move(fullpath, os.path.join(target_directory, get_date_subdir(fullpath)), uid, gid)
+
+
+
+def main(args):
+    uid = -1
+    gid = -1
+    if args.user:
+        uid = pwd.getpwnam(args.user).pw_uid
+    if args.group:
+        gid = grp.getgrnam(args.group).gr_gid
+
+    initlog(args.daemon)
+    listen(args.source_directories, args.target_directory, uid, gid)
+    log("stopping")
+    
+p = argparse.ArgumentParser(description = "Listen for new files and move them to date-based directory structure")
+p.add_argument('target_directory', metavar='target',              help='target directory')
+p.add_argument('source_directories', metavar='source', nargs='+', help='directory to watch for files')
+p.add_argument('-u', '--user',  metavar='user',                   help='username for files and directories in target structure')
+p.add_argument('-g', '--group', metavar='group',                  help='group for files and directories in target structure')
+p.add_argument('-d', '--daemon', action='store_const', default=False, const=True, help='Run in background')
+args = p.parse_args()
+
+if args.daemon:
+    with daemon.DaemonContext():
+        main(args)
+else:
+    main(args)
