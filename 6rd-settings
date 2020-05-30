@@ -1,0 +1,17 @@
+#!/bin/bash
+
+ip=$(wget -qO - http://ipecho.net/plain)
+IPv4BR="213.167.115.92"
+IPv4Prefix="0"
+IPv6Prefix="2a01:79c::"
+IPv6PrefixLength=30
+IPv6DNS="2a01:798:0:8012::4"
+
+v6rdprefix=$(ipv6calc -I ipv4addr -O ipv6addr --action 6rd_local_prefix --6rd_prefix $IPv6Prefix/$IPv6PrefixLength --6rd_relay_prefix $IPv4BR/$IPv4Prefix $ip | sed 's:/: prefixlen :')
+
+ifname="gif0"
+echo "ifconfig $ifname create"
+echo "ifconfig $ifname tunnel $ip $IPv4BR"
+echo "ifconfig $ifname inet6 $IPv6Prefix prefixlen $IPv6PrefixLength"
+echo "ifconfig $ifname inet6 $v6rdprefix"
+echo "route add -inet6 default -interface $ifname"
