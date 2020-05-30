@@ -13,52 +13,102 @@ from datetime import date
 import syslog
 import daemon
 from collections.abc import Iterable
+import shutil
+import threading
+import queue
+import time
+import signal
 
-class ImageMover:
+## global signal handling
+event_finishnow = threading.Event()
+event_finishwait = threading.Event()
+event_report = threading.Event()
+event_reread = threading.Event()
+
+def finishnow(signum, frame):
+    log.info("Recieved signal: Immediate shutdown")
+    event_finishnow.set()
+
+def finishwait(signum, frame):
+    log.info("Recieved signal: Graceful shutdown")
+    event_finishwait.set()
+
+def report(signum, frame):
+    log.info("Recieved signal: Report")
+    event_report.set()
+
+def reread(signum, frame):
+    log.info("Recieved signal: Reread source directories")
+    event_reread.set()
+    
+class Logger:
+    def __init__(self, use_syslog, verbose):
+        self.log_with_syslog = use_syslog
+        self.verbose = verbose
+        if self.log_with_syslog:
+            syslog.openlog(ident="cpimg3", logoption=syslog.LOG_PID, facility=syslog.LOG_LOCAL0)
+        else:
+            print("logging to stdout")
+        
+    def debug(self, message):
+        if self.verbose:
+            if self.log_with_syslog:
+                syslog.syslog(syslog.LOG_DEBUG, message)
+            else:
+                print(message)
+    
+    def info(self, message):
+        if self.log_with_syslog:
+            syslog.syslog(syslog.LOG_INFO, message)
+        else:
+            print(message)
+    
+    def warn(self, message):
+        if self.log_with_syslog:
+            syslog.syslog(syslog.LOG_WARNING, message)
+        else:
+            print(message)
+    
+    def error(self, message):
+        if self.log_with_syslog:
+            syslog.syslog(syslog.LOG_ERROR, message)
+        else:
+            print(message)
+    
+class ImageMover(threading.Thread):
     WRITE_MASK = inotify.constants.IN_CLOSE_WRITE | inotify.constants.IN_MOVED_TO
 
     re_date = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d) ")
     dirmode = 0o775
     filemode = 0o444
     
-    def __init__(self, target_directory):
-        self.log_with_syslog = False
+    def __init__(self, target_directory, delay, noop=False):
+        super(ImageMover, self).__init__()
         self.target_directory = target_directory
-        self.source_directories = []
         self.uid = -1
         self.gid = -1
-
+        self.noop = noop
+        self.queue = queue.Queue()
+        self.delay = delay
+        
+    def get_queue(self):
+        return self.queue
+        
     def set_uid(self, uid):
         self.uid = uid
 
     def set_gid(self, gid):
         self.gid = gid
 
-    def add_source_directories(self, *dirs):
-        for d in dirs:
-            if isinstance(d, Iterable):
-                self.source_directories += d
-            else:
-                self.source_directories.append(d)
-
-    def initlog(self, use_syslog):
-        self.log_with_syslog = use_syslog
-        if self.log_with_syslog:
-            syslog.openlog(ident="cpimg3", logoption=syslog.LOG_PID, facility=syslog.LOG_LOCAL0)
-        else:
-            print("logging to stdout")
-        
-    def log(self, message):
-        if self.log_with_syslog:
-            syslog.syslog(message)
-        else:
-            print(message)
-
     def makedirs(self, directory, mode):
+        if self.noop:
+            log.info("noop: create dir {}".format(directory))
+            return
+
         if os.path.exists(directory):
             if not os.path.isdir(directory):
                 msg = "exists but is not a directory: {}".format(directory)
-                self.log(msg)
+                log.warn(msg)
                 raise Exception(msg)
             return
         self.makedirs(os.path.dirname(directory), mode)
@@ -68,24 +118,37 @@ class ImageMover:
             os.chown(directory, self.uid, self.gid)
 
     def move(self, source, target):
-        self.log("move {} to {}".format(source, target))
+        log.info("move {} to {}".format(source, target))
+        if self.noop:
+            return
+
+        # make sure that the file did not disapear in the meantime
+        if not os.path.exists(source):
+            return
+        
         self.makedirs(target, mode=ImageMover.dirmode)
     
         filename = os.path.basename(source).lower()
         dst = os.path.join(target, filename)
 
         if os.path.exists(dst):
-            self.log("target exists: {}".format(dst))
+            log.warn("target exists: {}".format(dst))
         else:
-            os.rename(source, dst)
-            os.chown(dst, self.uid, self.gid)
-            os.chmod(dst, ImageMover.filemode)
-        
+            try:
+                shutil.move(source, dst)
+                os.chown(dst, self.uid, self.gid)
+                os.chmod(dst, ImageMover.filemode)
+            except FileNotFoundError:
+                log.info("file disapeared {}".format(source))
+            except Exception as e:
+                log.warn("unexpected error moving {}: {}".format(source, e))
+                
     def is_img(self, filename):
         if os.path.isfile(filename):
             filename_lower = filename.lower()
-            return filename_lower.endswith(".jpg") or filename_lower.endswith(".cr2")
-        return false
+            # TODO configurable glob
+            return filename_lower.endswith(".jpg") or filename_lower.endswith(".cr2") or filename_lower.endswith(".mov") or filename_lower.endswith(".mp4")
+        return False
 
     def get_date_subdir(self,filename):
         # check exif-data
@@ -114,48 +177,176 @@ class ImageMover:
         fullpath = os.path.join(path, filename)
         if self.is_img(fullpath):
             self.move(fullpath, os.path.join(self.target_directory, self.get_date_subdir(fullpath)))
+
+    def run(self):
+        log.info("image mover set up, moving to {}, for {}:{}". format(self.target_directory, self.uid, self.gid))
+        while True:
+            # todo, this blocks forever, no way out
+            cmd = self.queue.get()
+            if cmd:
+                log.debug("image mover received: {}".format(cmd))
+                cmd.wait(self.delay)
+                self.move_to_date(cmd.path, cmd.filename)
+            else:
+                log.info("image mover quit")
+                return
+            
+class MoveCommand():
+    def __init__(self, path, filename):
+        self.path = path
+        self.filename = filename
+        self.starttime = time.time()
+
+    def wait(self, delay):
+        # TODO can the sleep be interrupted?
+        while (not event_finishnow.isSet()) and (self.starttime+delay-time.time() > 1):
+            time.sleep(1)
+
+    def __str__(self):
+        return "{}/{} enqued {} seconds ago".format(self.path, self.filename, time.time()-self.starttime)
     
-    def listen(self):
-        self.log("listening in {}, moving to {}, for {}:{}". format(self.source_directories, self.target_directory, self.uid, self.gid))
-        i = inotify.adapters.Inotify()
+class DirectoryListener(threading.Thread):
+    def __init__(self, file_q):
+        super(DirectoryListener, self).__init__()
+        self.queue = file_q
+        self.source_directories = []
+
+    def add_source_directories(self, *dirs):
+        for d in dirs:
+            if isinstance(d, Iterable):
+                self.source_directories += d
+            else:
+                self.source_directories.append(d)
+
         
+    def move_existing_files(self):
+        for path in self.source_directories:
+            log.info("moving existing files in {}".format(path))
+            for filename in os.listdir(path):
+                log.debug("Lister put preexisting file in queue {}/{}".format(path, filename))
+                self.queue.put(MoveCommand(path, filename))
+
+    def run(self):
+        log.info("directory listener set up {}".format(self.source_directories))
+        i = inotify.adapters.Inotify()
+
+        # set up watchers before moving existing files to avoid race conditions
         for d in self.source_directories:
             i.add_watch(d)
 
-        for event in i.event_gen(yield_nones=False):
-            ((wd, mask, cookie, l), type_names, path, filename) = event
-            # print("{}: {}/{}".format(type_names, path, filename))
-            if (mask & ImageMover.WRITE_MASK) > 0:
-                self.move_to_date(path, filename)
-                
-    def move_existing_files(self):
-        for path in self.source_directories:
-            for filename in os.listdir(path):
-                self.move_to_date(path, filename)
+        self.move_existing_files()
+
+        counter = 0
+        
+        # wait for events
+        # yield_nones = True means we get an empty event on each timeout inside event_gen,
+        # approximately each second. This enables the loop to check for other events.
+        for event in i.event_gen(yield_nones=True):
+            if event:
+                ((wd, mask, cookie, l), type_names, path, filename) = event
+                #log.debug("{}: {}/{}".format(type_names, path, filename))
+                if (mask & ImageMover.WRITE_MASK) > 0:
+                    counter += 1
+                    log.debug("Listener put file in queue {}/{}".format(path, filename))
+                    self.queue.put(MoveCommand(path, filename))
+
+            # graceful shutdown
+            if event_finishnow.isSet() or event_finishwait.isSet():
+                log.info("Listener graceful shutdown")
+                self.queue.put(None)
+                return
+
+            if event_reread.isSet():
+                log.info("Listener reread source directories")
+                self.move_existing_files()
+                event_reread.clear()
+
+            if event_report.isSet():
+                log.info("Listener has processed {} files, {} in queue".format(counter, self.queue.qsize()))
+                event_report.clear()
 
 def main(args):
-    m = ImageMover(args.target_directory)
-    m.initlog(args.daemon)
+    m = ImageMover(args.target_directory, args.wait)
+
     if args.user:
+        log.info("user={}".format(args.user))
         m.set_uid(pwd.getpwnam(args.user).pw_uid)
     if args.group:
+        log.info("group={}".format(args.group))
         m.set_gid(grp.getgrnam(args.group).gr_gid)
 
-    m.add_source_directories(args.source_directories)
+    l = DirectoryListener(m.get_queue())
+    l.add_source_directories(args.source_directories)
+
+    m.start()
+    l.start()
+
+    l.join()
+    m.join()
     
-    m.move_existing_files()
-    m.listen()
-    
-p = argparse.ArgumentParser(description = "Listen for new files and move them to date-based directory structure")
-p.add_argument('target_directory', metavar='target',              help='target directory')
-p.add_argument('source_directories', metavar='source', nargs='+', help='directory to watch for files')
-p.add_argument('-u', '--user',  metavar='user',                   help='username for files and directories in target structure')
-p.add_argument('-g', '--group', metavar='group',                  help='group for files and directories in target structure')
-p.add_argument('-d', '--daemon', action='store_const', default=False, const=True, help='Run in background')
+p = argparse.ArgumentParser(description = "Listen for new files and move them to date-based directory structure.",
+                            epilog = '''When running in daemon mode, the following signals are handled: 
+                               SIGINT: process the rest of the planned moves, including waiting time, then quit. 
+                               SIGTERM: set waiting time to 0 and process all planned moves immediately, then quit.
+                               SIGUSR1: log status and statistics.
+                               SIGUSR2: reread directories to move files missed by the inotify listener.''')
+p.add_argument('target_directory', metavar='target',
+               help='target directory')
+
+p.add_argument('source_directories', metavar='source', nargs='+',
+               help='directory to watch for files')
+
+p.add_argument('-u', '--user',  metavar='user',
+               help='username for files and directories in target structure')
+
+p.add_argument('-g', '--group', metavar='group',
+               help='group for files and directories in target structure')
+
+p.add_argument('-d', '--daemon',
+               action='store_const', default=False, const=True,
+               help='Run in background')
+
+p.add_argument('-n', '--noop',
+               action='store_const', default=False, const=True,
+               help='Don\'t do anytning, just print')
+
+p.add_argument('-s', '--syslog',
+               action='store_const', default=False, const=True,
+               help='Log to syslog under facility LOCAL0. This is the default if --daemon is set.')
+
+p.add_argument('-w', '--wait', metavar='seconds',
+               type=int, default=30,
+               help='Some software gets very confused if a file disapears right after it was created. To compensate for this, there is a delay after a file getting closed before it is moved. The default delay is 30 seconds.')
+
+p.add_argument('-v', '--verbose',
+               action='store_const', default=False, const=True,
+               help='Logging of all inotify events')
+
+
 args = p.parse_args()
 
+log = Logger(use_syslog = (args.daemon or args.syslog), verbose = args.verbose)
+
 if args.daemon:
-    with daemon.DaemonContext():
-        main(args)
+    daemonContext = daemon.DaemonContext()
+    daemonContext.signal_map = {
+        signal.SIGINT: finishwait,
+        signal.SIGTERM: finishnow,
+        signal.SIGUSR1: report,
+        signal.SIGUSR2: reread
+    }
+    daemonContext.open()
+    with daemonContext:
+        try:
+            log.info("cpimg start")
+            main(args)
+            log.info("cpimg done")
+        except Exception as err:
+            log.error("Unexpected error, quitting: {}".format(err))
+
 else:
-    main(args)
+    try:
+        main(args)
+    except KeyboardInterrupt:
+        finishnow(0, None)
+        time.sleep(2)
