@@ -1,0 +1,22 @@
+#!/bin/bash
+
+date +"*** Starting backup on %Y-%m-%d %H:%M:%S" >> $HOME/.backup.log 2>&1
+
+# /home/rolfn/bin/cpimg2 "/home/rolfn/Dropbox/Camera Uploads"
+
+extra=$@
+
+backup() {
+    rsync --recursive --links --times --ignore-existing $extra $1 /data/usb/backup >> $HOME/.backup.log 2>&1
+}
+
+#rsync -r -l -t $@ /data/img   rsync://192.168.32.1/backup_hellerud
+#rsync -r -l -t $@ /data/album rsync://192.168.32.1/backup_hellerud
+#rsync -r -l -t $@ $HOME rsync://192.168.32.1/backup_hellerud
+
+backup /data/img
+backup /data/album
+backup /data/noter
+backup $HOME
+
+date +"*** Backup done %Y-%m-%d %H:%M:%S" >> $HOME/.backup.log 2>&1
