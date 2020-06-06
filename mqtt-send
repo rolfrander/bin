@@ -1,0 +1,47 @@
+#!/usr/bin/python3
+
+import paho.mqtt.client as mqtt
+import argparse
+import sys
+import time
+
+p = argparse.ArgumentParser(description="send mqtt-messages")
+p.add_argument('topic', help='topic message is sent to')
+p.add_argument('message', nargs="?", help='message to send, if not set, read from stdin')
+p.add_argument("--host", default="localhost", help="mqtt host")
+p.add_argument("--port", type=int, default=1883, help="port number")
+p.add_argument("--perftest", action="store_true",
+               help="send messages in a tight loop")
+conf = p.parse_args()
+
+client = mqtt.Client()
+
+client.connect(conf.host, conf.port)
+client.loop_start()
+
+if conf.perftest:
+    cnt = 0
+    lastcnt = 0
+    starttime = time.perf_counter()
+    lasttime = starttime
+    while True:
+        rc = client.publish(conf.topic, payload="foobar", qos=1)
+        rc.wait_for_publish()
+        cnt += 1
+        curtime = time.perf_counter()
+        if curtime-lasttime > 1:
+            print("time={:05.1f} cnt={} cnt/time={:1.1f}".format(curtime-starttime, cnt, (cnt-lastcnt)/(curtime-lasttime)))
+            lasttime = curtime
+            lastcnt = cnt
+else:
+    if conf.message:
+            rc = client.publish(conf.topic, payload=conf.message, qos=1)
+            rc.wait_for_publish()
+    else:
+        for line in sys.stdin:
+            rc = client.publish(conf.topic, payload=line, qos=1)
+            rc.wait_for_publish()
+
+client.loop_stop()
+
+client.disconnect()

@@ -1,0 +1,436 @@
+#! /usr/bin/env python
+
+from __future__ import with_statement
+import sys
+import logging
+import os
+import time
+import musicbrainz2.disc as mbdisc
+import musicbrainz2.webservice as mbws
+import CDDB, DiscID
+import xml.dom as xml
+import sys
+from xml.dom.ext import PrettyPrint
+from xml.sax import make_parser
+from xml.sax.handler import feature_namespaces
+from xml.sax import ContentHandler
+
+# Activate logging.
+#
+#logging.basicConfig()
+#logger = logging.getLogger()
+#logger.setLevel(logging.DEBUG)
+
+## config
+discdir = "/%s/.classicrip" % os.environ["HOME"]
+ripdir = "/tmp/classicrip"
+outputdir = "/cygdrive/z/music/classical"
+
+empty = unicode("", "iso-8859-1")
+uctrue = unicode("true", "iso-8859-1")
+uc0000 = unicode("0000", "iso-8859-1")
+
+norip = False
+if len(sys.argv) > 1 and sys.argv[1] == '-norip':
+	norip = True
+
+def fixstring(str):
+	ret = ''
+	for char in str:
+		if char == ' ':
+			ret = ret + '_'
+		elif char.isalnum() and ord(char)<128:
+			ret = ret + char.lower()
+	return ret
+
+class MusicFile:
+	def __init__(self, composer, work, part):
+		self.album = "%s (%s)" % (work.name, work.artist)
+		self.artist = composer.name
+		self.trackno = part.no
+		self.trackname = part.name
+		self.year = work.year
+		self.directory = "%s/%s-%s" % (fixstring(self.artist), self.year, fixstring(self.album))
+		self.file = "%2.2i.%s" % (self.trackno, fixstring(self.trackname))
+		self.skip = part.skip
+
+def addAttr(document, element, name, value):
+	a = document.createAttribute(unicode(name, "iso-8859-1"))
+	a.nodeValue = value
+	element.setAttributeNode(a)
+
+class Part:
+	def __init__(self, no, name):
+		self.no = no
+		self.name = name
+		self.skip = False
+		
+	def toXml(self, document, parent, defaultnum):
+		e = document.createElement(unicode("part", "iso-8859-1"))
+		e.appendChild(document.createTextNode(self.name))
+		if self.no != defaultnum:
+			addAttr(document, e, "no", unicode("%i" % self.no, "iso-8859-1"))
+		if self.skip:
+			addAttr(document, e, "skip", uctrue)
+		parent.appendChild(e)
+
+class Work:
+	"representing a work by a composer, performed by an artist on a disc"
+	def __init__(self, name, artist):
+		self.name = name
+		self.artist = artist
+		self.parts = []
+		self.year = uc0000
+		self.tmp_part_no = -1
+		self.tmp_part_skip = False
+		
+	def addPart(self, no, name):
+		print "adding part ", no, name
+		part = Part(no, name)
+		self.parts.append(part)
+		return part
+
+	def toXml(self, document, parent):
+		e = document.createElement(unicode("work", "iso-8859-1"))
+		addAttr(document, e, "name", self.name)
+		addAttr(document, e, "artist", self.artist)
+		addAttr(document, e, "year", self.year)
+		parent.appendChild(e)
+		defaultnum = 1
+		for part in self.parts:
+			part.toXml(document, e, defaultnum)
+			defaultnum = defaultnum+1
+
+	def startElement(self, name, attrs):
+		if name == 'part':
+			self.tmp_part_name = ''
+			self.tmp_part_skip = (attrs.get("skip") == "true")
+			no = attrs.get("no")
+			if no == None:
+				if len(self.parts) == 0:
+					self.tmp_part_no = 1
+				else:
+					self.tmp_part_no = self.parts[-1].no+1
+			else:
+				self.tmp_part_no = int(no)
+			return
+		raise Exception, "dont know how to handle %s" % name
+
+	def endElement(self, name):
+		if name == 'part':
+			part = self.addPart(self.tmp_part_no, self.tmp_part_name.strip())
+			part.skip = self.tmp_part_skip
+
+	def characters(self, ch):
+		if self.tmp_part_no >= 0:
+			self.tmp_part_name = self.tmp_part_name + ch
+
+class Composer:
+	"representing a composer present on a disc"
+	def __init__(self, name):
+		self.name = name
+		self.works = []
+	def addWork(self, name, artist):
+		work = Work(name, artist)
+		self.works.append(work)
+		return work
+	def toXml(self, document, parent):
+		e = document.createElement(unicode("composer", "iso-8859-1"))
+		addAttr(document, e, "name", self.name)
+		parent.appendChild(e)
+		for work in self.works:
+			work.toXml(document, e)
+
+	def startElement(self, name, attrs):
+		if name == 'work':
+			self.addWork(attrs.get("name"), attrs.get("artist")).year = attrs.get("year")
+			return
+		self.works[-1].startElement(name, attrs)
+		
+	def endElement(self, name):
+		if name == 'work':
+			return
+		self.works[-1].endElement(name)
+
+	def characters(self, ch):
+		if len(self.works) > 0:
+			self.works[-1].characters(ch)
+	
+class Disc:
+	"representing a compact disc"
+	def __init__(self):
+		self.composers = []
+
+	def addComposer(self, name):
+		c = Composer(name)
+		self.composers.append(c)
+		return c
+
+	def toXml(self, document, parent):
+		e = document.createElement(unicode("disc", "iso-8859-1"))
+		parent.appendChild(e)
+		for composer in self.composers:
+			composer.toXml(document, e)
+
+	def startElement(self, name, attrs):
+		if name == 'composer':
+			self.addComposer(attrs.get("name"))
+			return
+		self.composers[-1].startElement(name, attrs)
+
+	def endElement(self, name):
+		if name == 'composer':
+			return
+		self.composers[-1].endElement(name)
+
+	def characters(self, ch):
+		if len(self.composers) > 0:
+			self.composers[-1].characters(ch)
+
+	def filenames(self):
+		ret = []
+		for c in self.composers:
+			for w in c.works:
+				for p in w.parts:
+					ret.append(MusicFile(c, w, p))
+		return ret
+	
+class Discs(ContentHandler):
+
+	def __init__(self):
+		self.disc = None
+		
+	def startElement(self, name, attrs):
+		if name == 'discs':
+			return
+
+		if name == 'disc':
+			if self.disc != None:
+				return
+			self.disc = Disc()
+			return
+
+		self.disc.startElement(name, attrs)
+
+	def endElement(self, name):
+		if name == 'disc' or name == 'discs':
+			return
+		self.disc.endElement(name)
+
+	def characters(self, ch):
+		if self.disc != None:
+			self.disc.characters(ch)
+
+def read_disc():
+	return mbdisc.readDisc()
+
+def read_brainz(disc):
+	# Setup a Query object.
+	#
+	service = mbws.WebService()
+	query = mbws.Query(service)
+	ret = []
+	discId = -1
+	
+	# Query for all discs matching the given DiscID.
+	#
+	try:
+		filter = mbws.ReleaseFilter(discId=disc.getId())
+		results = query.getReleases(filter)
+	except mbws.WebServiceError, e:
+		print "Error:", e
+		return [discId,ret]
+
+
+	# No disc matching this DiscID has been found.
+	#
+	if len(results) == 0:
+		print "Disc is not yet in the MusicBrainz database."
+		print "Consider adding it via", mbdisc.getSubmissionUrl(disc)
+		return [discId,ret]
+
+	for result in results:
+		release = result.release
+		print 'Artist  :', release.artist.name
+		print 'Title   :', release.title
+		print
+
+		disc = Disc()
+		composer = disc.addComposer(release.artist.name)
+		work = composer.addWork(release.artist.name, release.title)
+		ret.append(disc)
+		
+		# The returned release object only contains title and artist, but no tracks.
+		# Query the web service once again to get all data we need.
+		#
+		try:
+			inc = mbws.ReleaseIncludes(artist=True, tracks=True, releaseEvents=True)
+			release = query.getReleaseById(result.getRelease().getId(), inc)
+		except mbws.WebServiceError, e:
+			print "Error:", e
+			return []
+	
+	
+		# Now display the returned data.
+		#
+		isSingleArtist = release.isSingleArtistRelease()
+		
+		print "%s - %s" % (release.artist.getUniqueName(), release.title)
+		
+		i = 1
+		for t in release.tracks:
+			if isSingleArtist:
+				title = t.title
+			else:
+				title = t.artist.name + ' - ' +  t.title
+
+			work.addPart(i, title)
+			i = i+1
+			
+	return [discId,ret]
+
+def read_cddb():
+	cdrom = DiscID.open()
+	disc_id = DiscID.disc_id(cdrom)
+	ret = []
+	
+	(query_status, query_info) = CDDB.query(disc_id)
+	if query_status != 200:
+		print "no info from cddb"
+		return ret
+
+	(read_status, read_info) = CDDB.read(query_info['category'], query_info['disc_id'])
+
+	disc = Disc()
+	composer = disc.addComposer(empty)
+	work = composer.addWork(empty, unicode(read_info['DTITLE'], "iso-8859-1"))
+	ret.append(disc)
+
+	for i in range(disc_id[1]):
+		title = read_info['TTITLE'+`i`]
+		work.addPart(i+1, unicode(title, "iso-8859-1"))
+
+	return ret
+
+def readxml(file):
+	parser = make_parser()
+	parser.setFeature(feature_namespaces, 0)
+	disc = Discs()
+	parser.setContentHandler(disc)
+	parser.parse(file)
+	return disc.disc
+
+def ensuredir(dir):
+	if not os.access(dir+"/.", os.W_OK):
+		os.makedirs(dir)
+
+def isdone(pid):
+	(retpid, exit) = os.waitpid(pid, os.WNOHANG)
+	if retpid != 0:
+		return True
+	return False
+
+discdata = read_disc()
+
+discfile = discdir+"/"+discdata.getId() + ".xml"
+
+ensuredir(discdir)
+
+if not os.access(discfile, os.R_OK):
+	tracks = len(discdata.getTracks())
+	[discid,data] = read_brainz(discdata)
+	if len(data) == 0:
+		data = read_cddb()
+
+	if len(data) == 0:
+		data.append(Disc())
+		work = data[0].addComposer(empty).addWork(empty, empty)
+		for i in range(tracks):
+			work.addPart(i+1, empty)
+
+	dom = xml.getDOMImplementation()
+	document = xml.getDOMImplementation().createDocument(empty, unicode("discs", "iso-8859-1"), None)
+	root = document.documentElement
+	#document.appendChild(root)
+	for d in data:
+		d.toXml(document, root)
+
+	#PrettyPrint(document)
+
+	with open(discfile, "w") as f:
+		PrettyPrint(document, f)
+
+editor = os.environ['EDITOR']
+if editor == None:
+	editor = "vi"
+
+# start ripping
+ensuredir(ripdir)
+os.chdir(ripdir)
+
+if not norip:
+	ripper = ["icedax", "dev=0,0,0", "-quiet", "-alltracks", "-paranoia"]
+	#ripper = ["/cygdrive/c/Program\ Files\ \(x86\)/Exact\ Audio\ Copy/CDRDAO/cdrdao.exe", "copy"]
+	rip_pid = os.spawnvp(os.P_NOWAIT, ripper[0], ripper)
+	rip_done = False
+else:
+	rip_done = True
+	
+# edit content xml
+os.spawnlp(os.P_WAIT, editor, editor, discfile)
+
+disc = None
+with open(discfile) as f:
+	disc = readxml(f)
+
+def ripfilename(no):
+	return "%s/track%02i.cdda.wav" % (ripdir, no)
+
+def not_exists_ripfile(no):
+	file = ripfilename(no)
+	return not os.access(file, os.R_OK)
+
+def add_encoding_tag(args, tag, value):
+	args.append("-T")
+	args.append("%s=%s" % (tag, value))
+
+filenames = disc.filenames()
+for i in range(len(filenames)):
+	curno = i+1
+	nextno = i+2
+	while not rip_done and not_exists_ripfile(nextno):
+		if isdone(rip_pid):
+			rip_done = True
+			os.spawnlp(os.P_NOWAIT, "eject", "eject")
+		time.sleep(5)
+
+	f = filenames[i]
+	encode = ["flac", "-V", "--delete-input-file", "-f"]
+	add_encoding_tag(encode, "TITLE", f.trackname)
+	add_encoding_tag(encode, "ALBUM", f.album)
+	add_encoding_tag(encode, "TRACKNUMBER", f.trackno)
+	add_encoding_tag(encode, "ARTIST", f.artist)
+	add_encoding_tag(encode, "GENRE", "Classical")
+	add_encoding_tag(encode, "DATE", f.year)
+
+	outdir = "%s/%s" % (outputdir, f.directory)
+	ensuredir(outdir)
+	outfile = "%s/%s.flac" % (outdir, f.file)
+
+	encode.append("-o")
+	encode.append(outfile)
+
+	ripfile = ripfilename(curno)
+	encode.append(ripfile)
+
+	if f.skip:
+		print "skipping "+outfile
+	else:
+		print "encoding to "+outfile
+		print encode
+		os.spawnvp(os.P_WAIT, encode[0], encode)
+		print "encoding done"
+
+if not rip_done:
+	os.kill(rip_pid, 15)
+os.remove(ripfilename(0))

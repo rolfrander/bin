@@ -1,0 +1,82 @@
+#!/usr/bin/python3
+
+import paho.mqtt.client as mqtt
+import argparse
+from threading import Thread
+import time
+
+p = argparse.ArgumentParser(description="listen on mqtt-topics")
+p.add_argument("topic", nargs="*", help="subscribe to topic")
+p.add_argument("--host", default="localhost", help="mqtt host")
+p.add_argument("--port", type=int, default=1883, help="port number")
+p.add_argument("--keepalive", type=int, default=60, help="keep alive ping interval")
+p.add_argument("--perftest", action="store_true",
+               help="don't print messages, but print statistics every second")
+conf = p.parse_args()
+
+# The callback for when the client receives a CONNACK response from the server.
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+
+    # Subscribing in on_connect() means that if we lose the connection and
+    # reconnect then subscriptions will be renewed.
+    client.subscribe("$SYS/broker/messages/#")
+    for topic in conf.topic:
+        print("subscribing to {}".format(topic))
+        client.subscribe(topic)
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message_print(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
+
+counter = 0
+def on_message_count(client, userdata, msg):
+    global counter
+    counter += 1
+
+class Report(Thread):
+    def __init__(self):
+        super(Report, self).__init__()
+        self.stop = False
+
+    def run(self):
+        global counter
+        currentcnt = counter
+        lastcnt = currentcnt
+        lasttime = time.perf_counter()
+        starttime = lasttime
+        while not self.stop:
+            time.sleep(1)
+            currentcnt = counter
+            currenttime = time.perf_counter()
+            print("time={:6.1f} msgcnt={} msgdiff={} msg/sec={:1.1f}".format(currenttime-starttime, currentcnt, currentcnt-lastcnt, (currentcnt-lastcnt)/(currenttime-lasttime)))
+            lastcnt = currentcnt
+            lasttime = currenttime
+
+client = mqtt.Client()
+client.on_connect = on_connect
+r = None
+if conf.perftest:
+    client.on_message = on_message_count
+    r = Report()
+    r.start()
+else:
+    client.on_message = on_message_print
+
+
+client.connect(conf.host, conf.port, conf.keepalive)
+
+# Blocking call that processes network traffic, dispatches callbacks and
+# handles reconnecting.
+# Other loop*() functions are available that give a threaded interface and a
+# manual interface.
+try:
+    client.loop_forever()
+except KeyboardInterrupt:
+    print("end")
+    pass
+
+if r != None:
+    r.stop = True
+
+client.disconnect()
