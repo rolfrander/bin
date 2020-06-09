@@ -1,14 +1,30 @@
 #!/usr/bin/perl
 
+use Getopt::ArgParse;
 use Net::Ping;
 use Time::HiRes qw(time);
 use POSIX qw(strftime);
 
-$repeat = ($ARGV[0] eq "-s");
+$ap = Getopt::ArgParse->new_parser(
+       prog        => 'wifi-status',
+       description => 'Report wifi status on Mac OSX'
+);
 
-$p = Net::Ping->new("syn");
-$p->port_number(443);
-$p->hires();
+# Parse an option: '--foo value' or '-f value'
+$ap->add_arg('--run', '-r', type => 'Bool', help => 'Keep running, print info each second');
+
+# Parse a boolean: '--bool' or '-b' using a different name from
+# the option
+$ap->add_arg('--ping', '-p', type => 'Scalar', help => 'Ping the given IP-address using TCP SYN', metavar => 'IP');
+$opts=$ap->parse_args(@ARGV);
+
+$repeat = $opts->run;
+
+if($opts->ping) {
+  $p = Net::Ping->new("syn");
+  $p->port_number(443);
+  $p->hires();
+}
 
 do {
   $t = time;
@@ -35,11 +51,13 @@ do {
 
   close(AIRPORT);
 
-  @ping = $p->ping("192.168.4.27");
-  if (($host,$rtt,$ip) = $p->ack) {
-    $pingtime = $rtt*1000;
-  } else {
-    $pingtime = -1;
+  if($opts->ping) {
+    @ping = $p->ping("192.168.4.27");
+    if (($host,$rtt,$ip) = $p->ack) {
+      $pingtime = $rtt*1000;
+    } else {
+      $pingtime = -1;
+    }
   }
 
   $date = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
