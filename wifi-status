@@ -53,7 +53,7 @@ do {
   close(AIRPORT);
 
   if($opts->ping) {
-    @ping = $p->ping("192.168.4.27");
+    @ping = $p->ping($opts->ping);
     if (($host,$rtt,$ip) = $p->ack) {
       $pingtime = $rtt*1000;
     } else {
