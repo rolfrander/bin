@@ -7,7 +7,8 @@ use POSIX qw(strftime);
 
 $ap = Getopt::ArgParse->new_parser(
        prog        => 'wifi-status',
-       description => 'Report wifi status on Mac OSX'
+       description => 'Report wifi status on Mac OSX',
+       epilog      => 'For help on debugging wifi issues, please see: https://apple.stackexchange.com/questions/263638'
 );
 
 # Parse an option: '--foo value' or '-f value'
