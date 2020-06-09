@@ -1,0 +1,30 @@
+#!/usr/bin/perl
+
+print $ARGV[0] . "\n";
+$repeat = ($ARGV[0] eq "-s");
+
+do {
+  open(AIRPORT, "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I |");
+
+  while(<AIRPORT>) {
+    if(/agrCtlRSSI: (-?\d+)/) { $signal = $1;}
+    if(/agrCtlNoise: (-?\d+)/){ $noise = $1;}
+    if(/lastTxRate: (\d+)/)   { $lastrate = $1;}
+    if(/maxRate: (\d+)/)      { $rate = $1;}
+    if(/BSSID: ([0-9a-f:]+)/) {
+      $BSSID = $1;
+      $ap = $BSSID;
+      if($BSSID =~ /1d:bd:28$/) { $ap="ap-trapp-2.4" ;}
+      if($BSSID =~ /1d:bd:29$/) { $ap="ap-trapp-5" ;}
+      if($BSSID =~ /1d:bd:16$/) { $ap="ap-stue-2.4" ;}
+      if($BSSID =~ /1d:bd:17$/) { $ap="ap-stue-5" ;}
+      if($BSSID =~ /1d:bd:60$/) { $ap="ap-soverom-2.4" ;}
+      if($BSSID =~ /1d:bd:61$/) { $ap="ap-soverom-5" ;}
+    }
+    if(/SSID: (.*)/) { $ssid = $1; }
+  }
+
+  printf "SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i\n", $ssid, $ap, $signal-$noise, $rate, $lastrate;
+
+  $repeat && sleep 1;
+} while($repeat);
