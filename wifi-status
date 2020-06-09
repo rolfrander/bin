@@ -66,5 +66,4 @@ do {
   printf("%s SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i pingtime=%.3fms\n",
          $date, $ssid, $ap, $signal-$noise, $rate, $lastrate, $pingtime);
 
-  $repeat && sleep 1;
-} while($repeat);
+} while($repeat && sleep 1);
