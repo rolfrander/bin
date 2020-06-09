@@ -1,9 +1,18 @@
 #!/usr/bin/perl
 
-print $ARGV[0] . "\n";
+use Net::Ping;
+use Time::HiRes qw(time);
+use POSIX qw(strftime);
+
 $repeat = ($ARGV[0] eq "-s");
 
+$p = Net::Ping->new("syn");
+$p->port_number(443);
+$p->hires();
+
 do {
+  $t = time;
+
   open(AIRPORT, "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I |");
 
   while(<AIRPORT>) {
@@ -24,7 +33,20 @@ do {
     if(/SSID: (.*)/) { $ssid = $1; }
   }
 
-  printf "SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i\n", $ssid, $ap, $signal-$noise, $rate, $lastrate;
+  close(AIRPORT);
+
+  @ping = $p->ping("192.168.4.27");
+  if (($host,$rtt,$ip) = $p->ack) {
+    $pingtime = $rtt*1000;
+  } else {
+    $pingtime = -1;
+  }
+
+  $date = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
+  $date .= sprintf ".%03d", ($t-int($t))*1000; # without rounding
+
+  printf("%s SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i pingtime=%.3fms\n",
+         $date, $ssid, $ap, $signal-$noise, $rate, $lastrate, $pingtime);
 
   $repeat && sleep 1;
 } while($repeat);
