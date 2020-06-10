@@ -3,7 +3,10 @@
 use Getopt::ArgParse;
 use Net::Ping;
 use Time::HiRes qw(time);
-use POSIX qw(strftime);
+use POSIX qw(strftime floor ceil);
+use feature 'unicode_strings';
+use utf8;
+binmode(STDOUT, "encoding(UTF-8)");
 
 $ap = Getopt::ArgParse->new_parser(
        prog        => 'wifi-status',
@@ -11,15 +14,50 @@ $ap = Getopt::ArgParse->new_parser(
        epilog      => 'For help on debugging wifi issues, please see: https://apple.stackexchange.com/questions/263638'
 );
 
-# Parse an option: '--foo value' or '-f value'
 $ap->add_arg('--run', '-r', type => 'Bool', help => 'Keep running, print info each second');
-
-# Parse a boolean: '--bool' or '-b' using a different name from
-# the option
 $ap->add_arg('--ping', '-p', type => 'Scalar', help => 'Ping the given IP-address using TCP SYN', metavar => 'IP');
+$ap->add_arg('--graph', '-g', type => 'Bool', help => 'Show S/N-ratio as a graph');
 $opts=$ap->parse_args(@ARGV);
 
 $repeat = $opts->run;
+$graph  = $opts->graph;
+
+$g_min = 14; # lowest value on graph
+$g_max = 38;# highest value on graph
+$g_width = 12; # output width, characters
+
+$p_min = 0; # lowest value on graph
+$p_max = 10;# highest value on graph
+$p_width = 10; # output width, characters
+
+
+@graphchar = (
+" ",
+"\N{U+258f}",
+"\N{U+258e}",
+"\N{U+258d}",
+"\N{U+258c}",
+"\N{U+258b}",
+"\N{U+258a}",
+"\N{U+2589}",
+"\N{U+2588}"
+);
+
+sub graph {
+  my ($sn, $min, $max, $width) = @_;
+  $sn = ($sn < $min) ? $min : $sn;
+  $sn = ($sn > $max) ? $max : $sn;
+  $sn -= $min;
+  $sn *= $width/($max-$min);;
+  my $left = floor($sn);
+  my $right = $g_width-$left-1;
+  my $frac = int(($sn-$left)*8+0.5);
+  my $frac_char = ($left<$width) ? $graphchar[$frac] : "";
+  return sprintf(" [%s%s%s]",
+                 $graphchar[8] x $left,
+                 $frac_char,
+                 $graphchar[0] x $right);
+}
 
 if($opts->ping) {
   $p = Net::Ping->new("syn");
@@ -65,8 +103,16 @@ do {
 
   $date = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
   $date .= sprintf ".%03d", ($t-int($t))*1000; # without rounding
-
-  printf("%s SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i pingtime=%.3f ms\n",
-         $date, $ssid, $ap, $signal-$noise, $rate, $lastrate, $pingtime);
+  $sn = $signal-$noise;
+  $sngraph = "";
+  $pinggraph = "";
+  if($graph) {
+    $sngraph = graph($sn, $g_min, $g_max, $g_width);
+    if($opts->ping) {
+      $pinggraph = graph($pingtime, $p_min, $p_max, $p_width);
+    }
+  }
+  printf("%s SSID=%s AP=%s s/n=%i%s maxrate=%i lastrate=%i pingtime=%.3f ms%s\n",
+         $date, $ssid, $ap, $sn, $sngraph, $rate, $lastrate, $pingtime, $pinggraph);
 
 } while($repeat && sleep 1);
