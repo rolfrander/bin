@@ -2,14 +2,13 @@
 
 use Getopt::ArgParse;
 use Net::Ping;
-use Time::HiRes qw(time);
+use Time::HiRes qw(time usleep);
 use POSIX qw(strftime floor ceil);
 use feature 'unicode_strings';
 use utf8;
 binmode(STDOUT, "encoding(UTF-8)");
 
 $ap = Getopt::ArgParse->new_parser(
-       prog        => 'wifi-status',
        description => 'Report wifi status on Mac OSX',
        epilog      => 'For help on debugging wifi issues, please see: https://apple.stackexchange.com/questions/263638'
 );
@@ -17,10 +16,12 @@ $ap = Getopt::ArgParse->new_parser(
 $ap->add_arg('--run', '-r', type => 'Bool', help => 'Keep running, print info each second');
 $ap->add_arg('--ping', '-p', type => 'Scalar', help => 'Ping the given IP-address using TCP SYN', metavar => 'IP');
 $ap->add_arg('--graph', '-g', type => 'Bool', help => 'Show S/N-ratio as a graph');
+$ap->add_arg('--interval', '-i', type => 'Scalar', help => 'Ping interval', metavar => 'seconds', default => 1);
 $opts=$ap->parse_args(@ARGV);
 
 $repeat = $opts->run;
 $graph  = $opts->graph;
+$interval = 1000000*(0.0 + $opts->interval);
 
 $g_min = 14; # lowest value on graph
 $g_max = 38;# highest value on graph
@@ -50,10 +51,10 @@ sub graph {
   $sn -= $min;
   $sn *= $width/($max-$min);;
   my $left = floor($sn);
-  my $right = $g_width-$left-1;
+  my $right = $width-$left-1;
   my $frac = int(($sn-$left)*8+0.5);
   my $frac_char = ($left<$width) ? $graphchar[$frac] : "";
-  return sprintf(" [%s%s%s]",
+  return sprintf("[%s%s%s]",
                  $graphchar[8] x $left,
                  $frac_char,
                  $graphchar[0] x $right);
@@ -98,21 +99,29 @@ do {
       $pingtime = $rtt*1000;
     } else {
       $pingtime = -1;
+      # reset ping client
+      $p = Net::Ping->new("syn");
+      $p->port_number(443);
+      $p->hires();
+
     }
   }
 
   $date = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
   $date .= sprintf ".%03d", ($t-int($t))*1000; # without rounding
   $sn = $signal-$noise;
-  $sngraph = "";
-  $pinggraph = "";
   if($graph) {
     $sngraph = graph($sn, $g_min, $g_max, $g_width);
+    $pinggraph = "";
     if($opts->ping) {
       $pinggraph = graph($pingtime, $p_min, $p_max, $p_width);
     }
-  }
-  printf("%s SSID=%s AP=%s s/n=%i%s maxrate=%i lastrate=%i pingtime=%.3f ms%s\n",
-         $date, $ssid, $ap, $sn, $sngraph, $rate, $lastrate, $pingtime, $pinggraph);
+    printf("%s SSID=%s AP=%s s/n=%i %s maxrate=%i lastrate=%i pingtime=%6.3f ms %s\n",
+           $date, $ssid, $ap, $sn, $sngraph, $rate, $lastrate, $pingtime, $pinggraph);
 
-} while($repeat && sleep 1);
+  } else {
+    printf("%s SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i pingtime=%.3f ms\n",
+    $date, $ssid, $ap, $sn, $rate, $lastrate, $pingtime);
+  }
+
+} while($repeat && usleep($interval));
