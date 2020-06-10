@@ -46,6 +46,8 @@ do {
       if($BSSID =~ /1d:bd:17$/) { $ap="ap-stue-5" ;}
       if($BSSID =~ /1d:bd:60$/) { $ap="ap-soverom-2.4" ;}
       if($BSSID =~ /1d:bd:61$/) { $ap="ap-soverom-5" ;}
+      if($BSSID =~  /b:6c:4e$/) { $ap="ap-kontor-2.4" ;}
+      if($BSSID =~  /b:6c:50$/) { $ap="ap-kontor-5" ;}
     }
     if(/SSID: (.*)/) { $ssid = $1; }
   }
@@ -64,7 +66,7 @@ do {
   $date = strftime "%Y-%m-%d %H:%M:%S", localtime $t;
   $date .= sprintf ".%03d", ($t-int($t))*1000; # without rounding
 
-  printf("%s SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i pingtime=%.3fms\n",
+  printf("%s SSID=%s AP=%s s/n=%i maxrate=%i lastrate=%i pingtime=%.3f ms\n",
          $date, $ssid, $ap, $signal-$noise, $rate, $lastrate, $pingtime);
 
 } while($repeat && sleep 1);
