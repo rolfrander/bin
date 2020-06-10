@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 
 use Getopt::ArgParse;
+use Term::ANSIColor;
 use Net::Ping;
 use Time::HiRes qw(time usleep);
 use POSIX qw(strftime floor ceil);
@@ -45,19 +46,20 @@ $p_width = 10; # output width, characters
 );
 
 sub graph {
-  my ($sn, $min, $max, $width) = @_;
+  my ($sn, $min, $lim1, $lim2, $max, $width, $col1, $col2, $col3) = @_;
   $sn = ($sn < $min) ? $min : $sn;
   $sn = ($sn > $max) ? $max : $sn;
+  my $col;
+  if ($sn < $lim1)   { $col = $col1; }
+  elsif($sn < $lim2) { $col = $col2; }
+  else               { $col = $col3; }
   $sn -= $min;
   $sn *= $width/($max-$min);;
   my $left = floor($sn);
   my $right = $width-$left-1;
   my $frac = int(($sn-$left)*8+0.5);
   my $frac_char = ($left<$width) ? $graphchar[$frac] : "";
-  return sprintf("[%s%s%s]",
-                 $graphchar[8] x $left,
-                 $frac_char,
-                 $graphchar[0] x $right);
+  return "[" . colored(($graphchar[8] x $left) . $frac_char, $col) . ($graphchar[0] x $right) . "]";
 }
 
 if($opts->ping) {
@@ -79,14 +81,14 @@ do {
     if(/BSSID: ([0-9a-f:]+)/) {
       $BSSID = $1;
       $ap = $BSSID;
-      if($BSSID =~ /1d:bd:28$/) { $ap="ap-trapp-2.4" ;}
-      if($BSSID =~ /1d:bd:29$/) { $ap="ap-trapp-5" ;}
-      if($BSSID =~ /1d:bd:16$/) { $ap="ap-stue-2.4" ;}
-      if($BSSID =~ /1d:bd:17$/) { $ap="ap-stue-5" ;}
-      if($BSSID =~ /1d:bd:60$/) { $ap="ap-soverom-2.4" ;}
-      if($BSSID =~ /1d:bd:61$/) { $ap="ap-soverom-5" ;}
-      if($BSSID =~  /b:6c:4e$/) { $ap="ap-kontor-2.4" ;}
-      if($BSSID =~  /b:6c:50$/) { $ap="ap-kontor-5" ;}
+      if($BSSID =~ /1d:bd:28$/) { $ap="ap-trapp...2.4" ;}
+      if($BSSID =~ /1d:bd:29$/) { $ap="ap-trapp...5 " ;}
+      if($BSSID =~ /1d:bd:16$/) { $ap="ap-stue....2.4" ;}
+      if($BSSID =~ /1d:bd:17$/) { $ap="ap-stue....5  " ;}
+      if($BSSID =~ /1d:bd:60$/) { $ap="ap-soverom.2.4" ;}
+      if($BSSID =~ /1d:bd:61$/) { $ap="ap-soverom.5  " ;}
+      if($BSSID =~  /b:6c:4e$/) { $ap="ap-kontor..2.4" ;}
+      if($BSSID =~  /b:6c:50$/) { $ap="ap-kontor..5  " ;}
     }
     if(/SSID: (.*)/) { $ssid = $1; }
   }
@@ -111,10 +113,10 @@ do {
   $date .= sprintf ".%03d", ($t-int($t))*1000; # without rounding
   $sn = $signal-$noise;
   if($graph) {
-    $sngraph = graph($sn, $g_min, $g_max, $g_width);
+    $sngraph = graph($sn, $g_min, 20, 25, $g_max, $g_width, "bright_red", "bright_yellow", "green");
     $pinggraph = "";
     if($opts->ping) {
-      $pinggraph = graph($pingtime, $p_min, $p_max, $p_width);
+      $pinggraph = graph($pingtime, $p_min, 3, 6, $p_max, $p_width, "green", "bright_yellow", "bright_red");
     }
     printf("%s SSID=%s AP=%s s/n=%i %s maxrate=%i lastrate=%i pingtime=%6.3f ms %s\n",
            $date, $ssid, $ap, $sn, $sngraph, $rate, $lastrate, $pingtime, $pinggraph);
