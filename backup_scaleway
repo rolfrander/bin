@@ -7,5 +7,10 @@ then
     exit 1
 fi
 
-zip -r -1 "$1.zip" "$1"
-rclone copy --progress --s3-storage-class=GLACIER "$1.zip" "scaleway:rolfrander-img"
+#zip -r -1 "$1.zip" "$1"
+
+date +"*** Starting backup_scaleway on %Y-%m-%d %H:%M:%S" >> $HOME/.backup.log 2>&1
+
+rclone copy --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" >> $HOME/.backup.log 2>&1
+
+date +"*** Done backup_scaleway on %Y-%m-%d %H:%M:%S" >> $HOME/.backup.log 2>&1
