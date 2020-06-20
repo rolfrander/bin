@@ -5,7 +5,8 @@ import argparse
 import sys
 import time
 
-p = argparse.ArgumentParser(description="send mqtt-messages")
+p = argparse.ArgumentParser(description="send mqtt-messages",
+                            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 p.add_argument('topic', help='topic message is sent to')
 p.add_argument('message', nargs="?", help='message to send, if not set, read from stdin')
 p.add_argument("--host", default="localhost", help="mqtt host")
