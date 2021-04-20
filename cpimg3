@@ -147,7 +147,7 @@ class ImageMover(threading.Thread):
         if os.path.isfile(filename):
             filename_lower = filename.lower()
             # TODO configurable glob
-            return filename_lower.endswith(".jpg") or filename_lower.endswith(".cr2") or filename_lower.endswith(".mov") or filename_lower.endswith(".mp4")
+            return filename_lower.endswith(".jpg") or filename_lower.endswith(".cr2") or filename_lower.endswith(".mov") or filename_lower.endswith(".mp4") or filename_lower.endswith(".png")
         return False
 
     def get_date_subdir(self,filename):
