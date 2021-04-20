@@ -1,0 +1,9 @@
+#!/bin/bash
+
+. ~/.config/ifttt/apikey
+
+message="$@"
+url="https://maker.ifttt.com/trigger/notify/with/key/$IFTTT_API_KEY"
+
+curl -X POST -H "Content-Type: application/json" -d "{\"value1\":\"${message}\"}" $url > /dev/null 2>&1
+
