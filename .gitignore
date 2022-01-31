@@ -1,3 +1,15 @@
 *~
 iperf3
 nightcode*
+staticcheck
+sam2p
+impl
+gotests
+goplay
+gopls
+gopkgs
+gomodifytags
+go-outline
+dlv-dap
+dlv
+colors
