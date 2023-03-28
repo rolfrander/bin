@@ -1,0 +1,101 @@
+#!/usr/bin/python3
+
+import time
+import os
+import re
+from pathlib import Path
+from base64 import b64decode
+from quopri import decodestring
+
+def follow(thefile):
+    '''generator function that yields new lines in a file
+    '''
+    # seek the end of the file
+    pos = thefile.seek(0, os.SEEK_END)
+    newpos = max(pos-5000, 0)
+    thefile.seek(newpos, os.SEEK_SET)
+
+    line = thefile.readline()
+    while line and not line.startswith("From "):
+        line = thefile.readline()
+
+    if line:
+        yield line
+
+    # start infinite loop
+    while True:
+        # read last line of file
+        line = thefile.readline()
+        # sleep if file hasn't been updated
+        if not line:
+            time.sleep(0.1)
+            continue
+
+        yield line
+
+from_width = int((int(os.environ["COLUMNS"])-20-13)/3)
+subj_width = from_width*2
+re_from = re.compile("^From +([^ ]+) +[A-Za-z]+ (.{12})")
+re_subj = re.compile("^ Subject: ")
+re_fold = re.compile("^  Folder: .*/Maildir/\.?([^/]*\/)?new/")
+re_qp = re.compile("([^=?]+)|=\?([^?]+)\?([qQbB])\?([^?]*)(\?=)?")
+re_duplicate = re.compile("^  Folder: *formail -D")
+
+def get_from(line):
+    m = re_from.match(line)
+    return m.group(2), m.group(1)
+
+def get_subj(line):
+    subject = ""
+    for m in re.finditer(re_qp, line[10:-1]):
+        if m.group(1):
+            subject += m.group(1)
+        elif m.group(2):
+            try:
+                charset = m.group(2)
+                encoding = m.group(3)
+                encoded_subject = m.group(4)
+                if encoding.upper() == "Q":
+                    subject += decodestring(encoded_subject).decode(charset, errors='ignore').replace("_"," ")
+                if encoding.upper() == "B":
+                    subject += b64decode(encoded_subject).decode(charset)
+            except Exception as e:
+                subject = "ERROR: "+str(e)+line[10:-1]
+    return subject
+
+def get_fold(line):
+    m = re_fold.match(line)
+    if not m:
+        m = re_duplicate.match(line)
+        if not m:
+            return f"illegal folder: {line}"
+        else:
+            return "*duplicate*"
+    else:
+        return m.group(1) or ""
+
+def print_mail(bold, date, frm, subject, folder):
+    prefix = ""
+    postfix = ""
+    if bold:
+       prefix = "\033[1m"
+       postfix = "\033[m"
+    print(f"{prefix}{date} {frm:{from_width}.{from_width}} {subject:{subj_width}.{subj_width}} {folder}{postfix}")
+
+if __name__ == '__main__':
+    home = Path.home()
+    logfile = open(f"{home}/.procmailrc.log","r")
+    loglines = follow(logfile)
+    # iterate over the generator
+    for line in loglines:
+        if line.startswith("From"):
+            date,frm = get_from(line)
+        elif line.startswith(" Subject: "):
+            subject = get_subj(line)
+        elif line.startswith("  Folder: "):
+            folder = get_fold(line)
+            bold = False
+            if folder in ("", "gt/", "vam/"):
+                bold = True
+            print_mail(bold, date, frm, subject, folder)
+            subject = ""
