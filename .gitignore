@@ -1,3 +1,7 @@
 *~
 iperf3
 nightcode*
+\#*
+dnspython3*
+.clj-kondo
+.lsp
