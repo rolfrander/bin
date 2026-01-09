@@ -61,9 +61,9 @@ def get_fold(line):
     if m:
         return (m.group(1) or ""),(m.group(2) or "0")
     elif re_dev_null.match(line):
-        return "DELETE!", None
+        return "DELETE!", "0"
     elif re_duplicate.match(line):
-        return "*duplicate*", None
+        return "*duplicate*", "0"
     else:
         return f"illegal folder: {line}", "0"
 
@@ -118,6 +118,7 @@ def print_line(scr, line, attr, texts, widths, offsets):
 
 def main(scr):
     scr.clear()
+    scr.nodelay(True)
     scr.idlok(True)
     scr.scrollok(True)
     curses.curs_set(0)
@@ -130,17 +131,19 @@ def main(scr):
     previous = []
     for entry in loglines:
         if entry:
-            previous.append(entry)
-            if line == h-1:
-                scr.scroll(1)
-            else:
-                line = line+1
-            attr = 0
-            if entry.bold:
-                attr = curses.A_BOLD
-            print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
-        else:
-            if (h,w) != scr.getmaxyx():
+            if entry.size != "0" and entry.folder != "other/":
+                previous.append(entry)
+                if line == h-1:
+                    scr.scroll(1)
+                else:
+                    line = line+1
+                attr = 0
+                if entry.bold:
+                    attr = curses.A_BOLD
+                print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
+        else:            
+            key = scr.getch()
+            if key == curses.KEY_RESIZE:
                 h,w = scr.getmaxyx()
                 widths,offsets = calc_cols(w)
                 scr.clear()
@@ -151,8 +154,11 @@ def main(scr):
                         attr = curses.A_BOLD
                     print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
                     line = line+1
+            elif key == ord('q'):
+                logfile.close()
+                return
             scr.refresh()
-            time.sleep(0.5)
+            curses.napms(500)
 
 if __name__ == '__main__':
     curses.wrapper(main)
