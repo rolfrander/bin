@@ -9,12 +9,15 @@ def main(scr):
     scr.scrollok(True)
     curses.curs_set(0)
     h,w = scr.getmaxyx()
+    i=0
     while True:
         key = scr.getch()
         # 12 = ctrl-L
         if key == curses.KEY_RESIZE or key == 12:
-            scr.addstr(1, 0, "resize event, max x y  : {0[0]} x {0[1]}  ".format(scr.getmaxyx()))
-            scr.addstr(2, 0, "              rows cols: {} x {}  ".format(curses.LINES, curses.COLS))
+            i=i+1
+            scr.addstr(1, 0, "counter  : {}  ".format(i))
+            scr.addstr(2, 0, "max x y  : {0[0]} x {0[1]}  ".format(scr.getmaxyx()))
+            scr.addstr(3, 0, "rows cols: {} x {}  ".format(curses.LINES, curses.COLS))
         elif key == ord('q'):
             return
         elif key != -1:
