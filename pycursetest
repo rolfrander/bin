@@ -1,0 +1,27 @@
+#!/usr/bin/python3
+
+import curses
+
+def main(scr):
+    scr.clear()
+    scr.nodelay(True)
+    scr.idlok(True)
+    scr.scrollok(True)
+    curses.curs_set(0)
+    h,w = scr.getmaxyx()
+    while True:
+        key = scr.getch()
+        # 12 = ctrl-L
+        if key == curses.KEY_RESIZE or key == 12:
+            scr.addstr(1, 0, "resize event, new size: {0[0]} x {0[1]}".format(scr.getmaxyx()))
+        elif key == ord('q'):
+            return
+        elif key != -1:
+            scr.addstr(0, 0, "last keypress: {}".format(key))
+        scr.refresh()
+        curses.napms(500)
+
+if __name__ == '__main__':
+    curses.wrapper(main)
+
+
