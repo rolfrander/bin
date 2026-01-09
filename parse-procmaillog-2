@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import curses
 import time
 import os
 import re
@@ -7,37 +8,18 @@ from pathlib import Path
 from base64 import b64decode
 from quopri import decodestring
 
-def follow(thefile):
-    '''generator function that yields new lines in a file
-    '''
-    # seek the end of the file
-    pos = thefile.seek(0, os.SEEK_END)
-    newpos = max(pos-15000, 0)
-    thefile.seek(newpos, os.SEEK_SET)
+class LogEntry():
+    def __init__(self, frm, date, subject, folder, size):
+        self.frm = frm
+        self.date = date
+        self.subject = subject
+        self.folder = folder
+        self.size = size
+        self.bold = self.folder in ("", "gt/", "vam/")
 
-    line = thefile.readline()
-    while line and not line.startswith("From "):
-        line = thefile.readline()
-
-    if line:
-        yield line
-
-    # start infinite loop
-    while True:
-        # read last line of file
-        line = thefile.readline()
-        # sleep if file hasn't been updated
-        if not line:
-            time.sleep(0.1)
-            continue
-
-        yield line
-
-from_width = int((int(os.environ["COLUMNS"])-20-13)/3)
-subj_width = from_width*2
 re_from = re.compile("^From +([^ ]+) +[A-Za-z]+ (.{12})")
 re_subj = re.compile("^ Subject: ")
-re_fold     = re.compile("^  Folder: .*/Maildir/\.?([^/]*\/)?new/")
+re_fold     = re.compile("^  Folder: .*/Maildir/\.?([^/]*\/)?new/ +([0-9]+)")
 re_dev_null = re.compile("^  Folder: /dev/null")
 re_qp = re.compile("([^=?]+)|=\?([^?]+)\?([qQbB])\?([^?]*)(\?=)?")
 re_duplicate = re.compile("^  Folder: *formail -D")
@@ -77,40 +59,98 @@ def get_subj(line):
 def get_fold(line):
     m = re_fold.match(line)
     if m:
-        return m.group(1) or ""
+        return (m.group(1) or ""),(m.group(2) or "0")
     elif re_dev_null.match(line):
-        return "DELETE!"
+        return "DELETE!", "0"
     elif re_duplicate.match(line):
-        return "*duplicate*"
+        return "*duplicate*", "0"
     else:
-        return f"illegal folder: {line}"
+        return f"illegal folder: {line}", "0"
 
 
-def print_mail(bold, date, frm, subject, folder):
-    prefix = ""
-    postfix = ""
-    if bold:
-       prefix = "\033[1m"
-       postfix = "\033[m"
-    print(f"{prefix}{date} {frm:{from_width}.{from_width}} {subject:{subj_width}.{subj_width}} {folder}{postfix}")
+def follow(thefile):
+    '''generator function that yields new lines in a file
+    '''
+    # seek the end of the file
+    pos = thefile.seek(0, os.SEEK_END)
+    newpos = max(pos-15000, 0)
+    thefile.seek(newpos, os.SEEK_SET)
 
-if __name__ == '__main__':
-    home = Path.home()
+    line = thefile.readline()
+    while line and not line.startswith("From "):
+        line = thefile.readline()
+
+    # start infinite loop
     date = ""
     frm = ""
     subject = ""
-    logfile = open(f"{home}/.procmailrc.log",mode="r", encoding="ascii", errors="ignore")
-    loglines = follow(logfile)
-    # iterate over the generator
-    for line in loglines:
-        if line.startswith("From"):
+    while True:
+        # sleep if file hasn't been updated
+        if not line:
+            yield None
+        elif line.startswith("From"):
             date,frm = get_from(line)
         elif line.startswith(" Subject: "):
             subject = get_subj(line)
         elif line.startswith("  Folder: "):
-            folder = get_fold(line)
-            bold = False
-            if folder in ("", "gt/", "vam/"):
-                bold = True
-            print_mail(bold, date, frm, subject, folder)
+            folder,size = get_fold(line)
+            e = LogEntry(frm, date, subject, folder, size)
+            yield e
             subject = ""
+        # read next line
+        line = thefile.readline()
+
+def calc_cols(w):
+    col1 = 12
+    col3 = min(70, int((w-col1)*0.7))-1
+    col2 = w-col1-col3-2
+    widths = [12, col2, col3]
+    offsets= [0]
+    for w in widths[:-1]:
+        offsets.append(offsets[-1]+w+1)
+    return widths, offsets
+
+def print_line(scr, line, attr, texts, widths, offsets):
+    for i in range(len(texts)):
+        scr.addnstr(line, offsets[i], texts[i], widths[i], attr)
+
+def main(scr):
+    scr.clear()
+    scr.idlok(True)
+    scr.scrollok(True)
+    curses.curs_set(0)
+    h,w = scr.getmaxyx()
+    widths,offsets = calc_cols(w)
+    line=0
+    home = Path.home()
+    logfile = open(f"{home}/.procmailrc.log",mode="r", encoding="ascii", errors="ignore")
+    loglines = follow(logfile)
+    previous = []
+    for entry in loglines:
+        if entry:
+            previous.append(entry)
+            if line == h-1:
+                scr.scroll(1)
+            else:
+                line = line+1
+            attr = 0
+            if entry.bold:
+                attr = curses.A_BOLD
+            print_line(scr, line, attr, [entry.date, entry.frm, entry.subject], widths, offsets)
+        else:
+            if (h,w) != scr.getmaxyx():
+                h,w = scr.getmaxyx()
+                widths,offsets = calc_cols(w)
+                scr.clear()
+                line = 0
+                for entry in previous[-(h-1):]:
+                    attr = 0
+                    if entry.bold:
+                        attr = curses.A_BOLD
+                    print_line(scr, line, attr, [entry.date, entry.frm, entry.subject], widths, offsets)
+                    line = line+1
+            scr.refresh()
+            time.sleep(0.5)
+
+if __name__ == '__main__':
+    curses.wrapper(main)
