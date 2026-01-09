@@ -10,6 +10,10 @@ from quopri import decodestring
 
 class LogEntry():
     def __init__(self, frm, date, subject, folder, size):
+        if frm.endswith("styreweb.com") or frm.endswith("styrewebmail.com"):
+            frm = "styreweb"
+        if frm.endswith("amazonses.com"):
+            frm = "amazon"
         self.frm = frm
         self.date = date
         self.subject = subject
@@ -19,7 +23,7 @@ class LogEntry():
 
 re_from = re.compile("^From +([^ ]+) +[A-Za-z]+ (.{12})")
 re_subj = re.compile("^ Subject: ")
-re_fold     = re.compile("^  Folder: .*/Maildir/\.?([^/]*\/)?new/ +([0-9]+)")
+re_fold     = re.compile("^  Folder: .*/Maildir/\.?([^/]*\/)?[^ ]* +([0-9]+)")
 re_dev_null = re.compile("^  Folder: /dev/null")
 re_qp = re.compile("([^=?]+)|=\?([^?]+)\?([qQbB])\?([^?]*)(\?=)?")
 re_duplicate = re.compile("^  Folder: *formail -D")
@@ -32,10 +36,6 @@ def get_from(line):
     m = re_styreportalen.match(frm)
     if m:
         frm = m.group(2) + "@" + m.group(1)
-    if frm.endswith("styreweb.com") or frm.endswith("styrewebmail.com"):
-        frm = "styreweb"
-    if frm.endswith("amazonses.com"):
-        frm = "amazon"
     return date,frm
 
 def get_subj(line):
@@ -61,9 +61,9 @@ def get_fold(line):
     if m:
         return (m.group(1) or ""),(m.group(2) or "0")
     elif re_dev_null.match(line):
-        return "DELETE!", "0"
+        return "DELETE!", None
     elif re_duplicate.match(line):
-        return "*duplicate*", "0"
+        return "*duplicate*", None
     else:
         return f"illegal folder: {line}", "0"
 
@@ -94,17 +94,19 @@ def follow(thefile):
             subject = get_subj(line)
         elif line.startswith("  Folder: "):
             folder,size = get_fold(line)
-            e = LogEntry(frm, date, subject, folder, size)
-            yield e
+            if size is not None:
+                e = LogEntry(frm, date, subject, folder, size)
+                yield e
             subject = ""
         # read next line
         line = thefile.readline()
 
 def calc_cols(w):
     col1 = 12
-    col3 = min(70, int((w-col1)*0.7))-1
-    col2 = w-col1-col3-2
-    widths = [12, col2, col3]
+    col4 = 15
+    col3 = min(70, int((w-col1-col4)*0.7))-1
+    col2 = w-col1-col3-col4-3
+    widths = [col1, col2, col3, col4]
     offsets= [0]
     for w in widths[:-1]:
         offsets.append(offsets[-1]+w+1)
@@ -136,7 +138,7 @@ def main(scr):
             attr = 0
             if entry.bold:
                 attr = curses.A_BOLD
-            print_line(scr, line, attr, [entry.date, entry.frm, entry.subject], widths, offsets)
+            print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
         else:
             if (h,w) != scr.getmaxyx():
                 h,w = scr.getmaxyx()
@@ -147,10 +149,12 @@ def main(scr):
                     attr = 0
                     if entry.bold:
                         attr = curses.A_BOLD
-                    print_line(scr, line, attr, [entry.date, entry.frm, entry.subject], widths, offsets)
+                    print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
                     line = line+1
             scr.refresh()
             time.sleep(0.5)
 
 if __name__ == '__main__':
     curses.wrapper(main)
+
+
