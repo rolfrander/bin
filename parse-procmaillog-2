@@ -143,7 +143,8 @@ def main(scr):
                 print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
         else:            
             key = scr.getch()
-            if key == curses.KEY_RESIZE:
+            # 12 = ctrl-L
+            if key == curses.KEY_RESIZE or key == 12:
                 h,w = scr.getmaxyx()
                 widths,offsets = calc_cols(w)
                 scr.clear()
@@ -157,6 +158,10 @@ def main(scr):
             elif key == ord('q'):
                 logfile.close()
                 return
+            elif key != -1:
+                scr.addstr(0, 0, "         ")
+                scr.addstr(1, 0, "   {}    ".format(key))
+                scr.addstr(2, 0, "         ")
             scr.refresh()
             curses.napms(500)
 
