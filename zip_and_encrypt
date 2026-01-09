@@ -1,0 +1,8 @@
+#!/bin/bash
+
+for f in $*
+do
+    PWD=$(openssl rand -base64 21)
+    echo "$f $PWD" >> ~/tmp/passwords.txt
+    7z a -p$PWD -mhe ~/tmp/$f.7z $f
+done
