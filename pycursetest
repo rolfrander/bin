@@ -13,7 +13,8 @@ def main(scr):
         key = scr.getch()
         # 12 = ctrl-L
         if key == curses.KEY_RESIZE or key == 12:
-            scr.addstr(1, 0, "resize event, new size: {0[0]} x {0[1]}".format(scr.getmaxyx()))
+            scr.addstr(1, 0, "resize event, max x y  : {0[0]} x {0[1]}  ".format(scr.getmaxyx()))
+            scr.addstr(2, 0, "              rows cols: {} x {}  ".format(curses.LINES, curses.COLS))
         elif key == ord('q'):
             return
         elif key != -1:
