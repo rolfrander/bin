@@ -23,7 +23,7 @@ def main(scr):
         elif key != -1:
             scr.addstr(0, 0, "last keypress: {}".format(key))
         scr.refresh()
-        curses.napms(500)
+        curses.napms(10)
 
 if __name__ == '__main__':
     curses.wrapper(main)
