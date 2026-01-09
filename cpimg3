@@ -18,6 +18,7 @@ import threading
 import queue
 import time
 import signal
+import yaml
 
 ## global signal handling
 event_finishnow = threading.Event()
@@ -40,7 +41,37 @@ def report(signum, frame):
 def reread(signum, frame):
     log.info("Recieved signal: Reread source directories")
     event_reread.set()
+
+class Config:
+    def __init__(self):
+        self.cfg_from_file = None
+        self.default_dest = None
+        self.default_src = []
+
+    def set_cfg_file(self, cfgfile):
+        self.cfgfile = cfgfile
+
+    def read_cfg(self):
+        with open(self.cfgfile, "r") as input:
+            self.cfg_from_file = yaml.safe_load(input)
+
+    def get_src(self):
+        if self.cfg_from_file is not None and self.cfg_from_file["sources"] is not None:
+            return self.default_src + self.cfg_from_file["sources"]
+        return self.default_src
     
+    def get_dest(self):
+        if self.cfg_from_file is not None and self.cfg_from_file["destination"] is not None:
+            return self.cfg_from_file["destination"]
+        else:
+            return self.default_dest
+
+    def set_dest_from_cmdline(self, dest):
+        self.default_dest = dest
+
+    def add_src_from_cmdline(self, src):
+        self.default_src.append(src)
+
 class Logger:
     def __init__(self, use_syslog, verbose):
         self.log_with_syslog = use_syslog
@@ -145,9 +176,7 @@ class ImageMover(threading.Thread):
                 
     def is_img(self, filename):
         if os.path.isfile(filename):
-            filename_lower = filename.lower()
-            # TODO configurable glob
-            return filename_lower.endswith(".jpg") or filename_lower.endswith(".cr2") or filename_lower.endswith(".mov") or filename_lower.endswith(".mp4") or filename_lower.endswith(".png")
+            return filename.lower()[-4:] in [".jpg", ".cr2", ".mov", ".mp4", "heic"]
         return False
 
     def get_date_subdir(self,filename):
@@ -199,7 +228,7 @@ class MoveCommand():
 
     def wait(self, delay):
         # TODO can the sleep be interrupted?
-        while (not event_finishnow.isSet()) and (self.starttime+delay-time.time() > 1):
+        while (not event_finishnow.is_set()) and (self.starttime+delay-time.time() > 1):
             time.sleep(1)
 
     def __str__(self):
@@ -230,9 +259,12 @@ class DirectoryListener(threading.Thread):
         log.info("directory listener set up {}".format(self.source_directories))
         i = inotify.adapters.Inotify()
 
-        # set up watchers before moving existing files to avoid race conditions
-        for d in self.source_directories:
-            i.add_watch(d)
+        try:
+            # set up watchers before moving existing files to avoid race conditions
+            for d in self.source_directories:
+                i.add_watch(d)
+        except inotify.calls.InotifyError as e:
+            log.error("error setting up inotify-watch: {}".format(e))
 
         self.move_existing_files()
 
@@ -251,22 +283,34 @@ class DirectoryListener(threading.Thread):
                     self.queue.put(MoveCommand(path, filename))
 
             # graceful shutdown
-            if event_finishnow.isSet() or event_finishwait.isSet():
+            if event_finishnow.is_set() or event_finishwait.is_set():
                 log.info("Listener graceful shutdown")
                 self.queue.put(None)
                 return
 
-            if event_reread.isSet():
+            if event_reread.is_set():
                 log.info("Listener reread source directories")
                 self.move_existing_files()
                 event_reread.clear()
 
-            if event_report.isSet():
+            if event_report.is_set():
                 log.info("Listener has processed {} files, {} in queue".format(counter, self.queue.qsize()))
                 event_report.clear()
 
 def main(args):
-    m = ImageMover(args.target_directory, args.wait)
+    config = Config()
+    config.set_cfg_file(args.config)
+    config.set_dest_from_cmdline(args.target)
+    if args.source is not None:
+        for s in args.source:
+            config.add_src_from_cmdline(s)
+
+    try:
+        config.read_cfg()
+    except Exception:
+        pass
+
+    m = ImageMover(config.get_dest(), args.wait, noop=args.noop)
 
     if args.user:
         log.info("user={}".format(args.user))
@@ -276,24 +320,24 @@ def main(args):
         m.set_gid(grp.getgrnam(args.group).gr_gid)
 
     l = DirectoryListener(m.get_queue())
-    l.add_source_directories(args.source_directories)
+    l.add_source_directories(config.get_src())
 
     m.start()
     l.start()
 
     l.join()
     m.join()
-    
+
 p = argparse.ArgumentParser(description = "Listen for new files and move them to date-based directory structure.",
                             epilog = '''When running in daemon mode, the following signals are handled: 
                                SIGINT: process the rest of the planned moves, including waiting time, then quit. 
                                SIGTERM: set waiting time to 0 and process all planned moves immediately, then quit.
                                SIGUSR1: log status and statistics.
                                SIGUSR2: reread directories to move files missed by the inotify listener.''')
-p.add_argument('target_directory', metavar='target',
+p.add_argument('-t', '--target', metavar='target', 
                help='target directory')
 
-p.add_argument('source_directories', metavar='source', nargs='+',
+p.add_argument('-s', '--source', metavar='source', nargs='+',
                help='directory to watch for files')
 
 p.add_argument('-u', '--user',  metavar='user',
@@ -310,7 +354,7 @@ p.add_argument('-n', '--noop',
                action='store_const', default=False, const=True,
                help='Don\'t do anytning, just print')
 
-p.add_argument('-s', '--syslog',
+p.add_argument('--syslog',
                action='store_const', default=False, const=True,
                help='Log to syslog under facility LOCAL0. This is the default if --daemon is set.')
 
@@ -322,6 +366,9 @@ p.add_argument('-v', '--verbose',
                action='store_const', default=False, const=True,
                help='Logging of all inotify events')
 
+p.add_argument('-c', '--config', metavar='config file',
+               default="/home/rolfn/.config/cpimg/cpimg.yml",
+               help="Config yaml-file")
 
 args = p.parse_args()
 
