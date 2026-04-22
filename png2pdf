@@ -1,0 +1,61 @@
+#!/bin/bash
+
+if [ "x$1" = "x-help" -o "x$1" = "x--help" ]
+then
+  echo "png2pdf [-twoside | -twosideoff | -nomargin]"
+  exit 1
+fi
+
+margins_odd="-m:1cm"
+margins_even="-m:1cm"
+
+if [ "x$1" = "x-twoside" ]
+then
+ margins_odd="-m:left:1.5cm -m:right:0.5cm -m:top:1cm -m:bottom:1cm"
+ margins_even="-m:left:0.5cm -m:right:1.5cm -m:top:1cm -m:bottom:1cm"
+ shift
+fi
+
+if [ "x$1" = "x-twosideoff" ]
+then
+ margins_even="-m:left:1.5cm -m:right:0.5cm -m:top:1cm -m:bottom:1cm"
+ margins_odd="-m:left:0.5cm -m:right:1.5cm -m:top:1cm -m:bottom:1cm"
+ shift
+fi
+
+if [ "x$1" = "x-nomargin" ]
+then
+ margins_odd="-m:0cm"
+ margins_even="-m:0cm"
+ shift
+fi
+
+while [ ! -z "$1" ] ; do
+dir="$1"
+output=$(echo "$dir" | sed 's,/$,,;s,/,-,g')
+
+cd "$dir"
+
+odd=1
+
+for f in *.png
+do
+ if [ $odd = 1 ]
+ then margin=$margins_odd
+ else margin=$margins_even
+ fi
+ odd=$[1-odd]
+ echo "margin: $margin"
+ sam2p $margin -e:1 $f ${f%png}ps
+done
+
+gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sPAPERSIZE=a4 "-sOutputFile=$output.pdf" $(ls *.ps *.pdf)
+
+rm *.ps
+
+mv "$output.pdf" ..
+
+cd -
+
+shift
+done

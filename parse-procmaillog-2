@@ -1,0 +1,171 @@
+#!/usr/bin/python3
+
+import curses
+import time
+import os
+import re
+from pathlib import Path
+from base64 import b64decode
+from quopri import decodestring
+
+class LogEntry():
+    def __init__(self, frm, date, subject, folder, size):
+        if frm.endswith("styreweb.com") or frm.endswith("styrewebmail.com"):
+            frm = "styreweb"
+        if frm.endswith("amazonses.com"):
+            frm = "amazon"
+        self.frm = frm
+        self.date = date
+        self.subject = subject
+        self.folder = folder
+        self.size = size
+        self.bold = self.folder in ("", "gt/", "vam/")
+
+re_from = re.compile("^From +([^ ]+) +[A-Za-z]+ (.{12})")
+re_subj = re.compile("^ Subject: ")
+re_fold     = re.compile("^  Folder: .*/Maildir/\.?([^/]*\/)?[^ ]* +([0-9]+)")
+re_dev_null = re.compile("^  Folder: /dev/null")
+re_qp = re.compile("([^=?]+)|=\?([^?]+)\?([qQbB])\?([^?]*)(\?=)?")
+re_duplicate = re.compile("^  Folder: *formail -D")
+re_styreportalen = re.compile("^SRS0=[^=]*=[^=]*=([^=]*)=([^@]*)@.*")
+re_nonprint = re.compile("[^a-zA-Z0-9 .,:-_æøåÆØÅ]+")
+
+def get_from(line):
+    m = re_from.match(line)
+    frm,date = m.group(1),m.group(2)
+    m = re_styreportalen.match(frm)
+    if m:
+        frm = m.group(2) + "@" + m.group(1)
+    return date,frm
+
+def get_subj(line):
+    subject = ""
+    for m in re.finditer(re_qp, line[10:-1]):
+        if m.group(1):
+            subject += m.group(1)
+        elif m.group(2):
+            try:
+                charset = m.group(2)
+                encoding = m.group(3)
+                encoded_subject = m.group(4)
+                if encoding.upper() == "Q":
+                    subject += decodestring(encoded_subject).decode(charset, errors='ignore').replace("_"," ")
+                if encoding.upper() == "B":
+                    subject += b64decode(encoded_subject).decode(charset)
+            except Exception as e:
+                subject = "ERROR: "+str(e)+line[10:-1]
+    return re_nonprint.sub('', subject)
+
+def get_fold(line):
+    m = re_fold.match(line)
+    if m:
+        return (m.group(1) or ""),(m.group(2) or "0")
+    elif re_dev_null.match(line):
+        return "DELETE!", "0"
+    elif re_duplicate.match(line):
+        return "*duplicate*", "0"
+    else:
+        return f"illegal folder: {line}", "0"
+
+
+def follow(thefile):
+    '''generator function that yields new lines in a file
+    '''
+    # seek the end of the file
+    pos = thefile.seek(0, os.SEEK_END)
+    newpos = max(pos-15000, 0)
+    thefile.seek(newpos, os.SEEK_SET)
+
+    line = thefile.readline()
+    while line and not line.startswith("From "):
+        line = thefile.readline()
+
+    # start infinite loop
+    date = ""
+    frm = ""
+    subject = ""
+    while True:
+        # sleep if file hasn't been updated
+        if not line:
+            yield None
+        elif line.startswith("From"):
+            date,frm = get_from(line)
+        elif line.startswith(" Subject: "):
+            subject = get_subj(line)
+        elif line.startswith("  Folder: "):
+            folder,size = get_fold(line)
+            if size is not None:
+                e = LogEntry(frm, date, subject, folder, size)
+                yield e
+            subject = ""
+        # read next line
+        line = thefile.readline()
+
+def calc_cols(w):
+    col1 = 12
+    col4 = 15
+    col3 = min(70, int((w-col1-col4)*0.7))-1
+    col2 = w-col1-col3-col4-3
+    widths = [col1, col2, col3, col4]
+    offsets= [0]
+    for w in widths[:-1]:
+        offsets.append(offsets[-1]+w+1)
+    return widths, offsets
+
+def print_line(scr, line, attr, texts, widths, offsets):
+    for i in range(len(texts)):
+        scr.addnstr(line, offsets[i], texts[i], widths[i], attr)
+
+def main(scr):
+    scr.clear()
+    scr.nodelay(True)
+    scr.idlok(True)
+    scr.scrollok(True)
+    curses.curs_set(0)
+    h,w = scr.getmaxyx()
+    widths,offsets = calc_cols(w)
+    line=0
+    home = Path.home()
+    logfile = open(f"{home}/.procmailrc.log",mode="r", encoding="ascii", errors="ignore")
+    loglines = follow(logfile)
+    previous = []
+    for entry in loglines:
+        if entry:
+            if entry.size != "0" and entry.folder != "other/":
+                previous.append(entry)
+                if line == h-1:
+                    scr.scroll(1)
+                else:
+                    line = line+1
+                attr = 0
+                if entry.bold:
+                    attr = curses.A_BOLD
+                print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
+        else:            
+            key = scr.getch()
+            # 12 = ctrl-L
+            if key == curses.KEY_RESIZE or key == 12:
+                h,w = scr.getmaxyx()
+                widths,offsets = calc_cols(w)
+                scr.clear()
+                line = 0
+                for entry in previous[-(h-1):]:
+                    attr = 0
+                    if entry.bold:
+                        attr = curses.A_BOLD
+                    print_line(scr, line, attr, [entry.date, entry.frm, entry.subject, entry.folder], widths, offsets)
+                    line = line+1
+            elif key == ord('q'):
+                logfile.close()
+                return
+            elif key != -1:
+                scr.addstr(0, 0, "         ")
+                scr.addstr(1, 0, "   {}    ".format(key))
+                scr.addstr(2, 0, "         ")
+            scr.refresh()
+            curses.napms(500)
+
+if __name__ == '__main__':
+    curses.wrapper(main)
+
+

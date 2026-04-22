@@ -1,0 +1,10 @@
+#!/usr/bin/bash
+
+for f in $*
+do
+    target=$(readlink "$f")
+
+    if [ $? -eq 0 ]
+    then cp --remove-destination "$target" "$f"
+    fi
+done

@@ -1,0 +1,37 @@
+#!/usr/bin/awk -f
+
+# Jan 25 20:16 37.221169-53d302ce2b@mail93.atl301.rsgsv.net  =?utf-8?Q?Infographic=20|=20Visualizing=20China=E2=80=99s=20Dominance
+# Jan 25 20:26 +80487601640836@outbound.intercom.bookis.com  =?utf-8?B?8J+lhyBQw6UgdG9yc2RhZyBrYW4gZHUgc2UgZmluYWxlbiBpIMOF?=
+#From noreply@github.com Wed May 05 08:35:42 2021
+# Subject: [arkivverket/digitalskapt-poc] Bump pytest from 6.2.3 to 6.2.4 in
+#  Folder: /home/pvv/m/rolfn/Maildir/.github-arkivverket/new/1620196542    14983
+
+BEGIN {
+    # max folder-with = 15
+    FROM_WIDTH=int((0+ENVIRON["COLUMNS"]-20-13)/3);
+    SUBJ_WIDTH=FROM_WIDTH*2;
+}
+
+/^From/ {
+    FROM=$2 ;
+    match($0, /^From +[^ ]+ +[A-Za-z]+ (.{12}).*/, datematch);
+    DATE=datematch[1];
+}
+
+/^ Subject: / {
+    SUBJECT=substr($0, 10);
+    if (SUBJECT ~ /^=?[^?]*?[qQ]?/) {
+	gsub(/=.[^?]*.[qQ]./, "", SUBJECT)
+	gsub(/=20/, " ", SUBJECT)
+	gsub(/=[0-9a-fA-F]{2}/, "_", SUBJECT)
+    }
+      	    
+}
+
+/^  Folder: / {
+    match($0, /Maildir\/\.?([^/]*\/)new/, foldermatch);
+    printf "%s %-*s %-*s %s\n", DATE, FROM_WIDTH, substr(FROM, length(FROM)+1-FROM_WIDTH) , SUBJ_WIDTH, substr(SUBJECT, 1, SUBJ_WIDTH), foldermatch[1];
+    SUBJECT=""
+}
+
+

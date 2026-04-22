@@ -1,0 +1,8 @@
+#!/bin/bash
+
+while true; do
+    ssh "$@"
+
+    echo "Press enter to reconnect..."
+    read
+done
