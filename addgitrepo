@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [[ $# -eq 0 ]]
+then echo Usage: $0 [repo]
+     echo   repo without .git extension
+     exit
+fi
+
+gitdir=$1.git
+
+cd /data/git
+sudo mkdir $gitdir
+sudo chown git:git $gitdir
+cd $gitdir
+sudo -u git git init --bare
