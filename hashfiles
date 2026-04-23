@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+
+import os
+import hashlib
+import sqlite3
+import argparse
+import sys
+from pathlib import Path
+from datetime import datetime
+
+CHUNK_SIZE = 1024 * 1024  # 1 MB
+
+
+def compute_checksum(path, algorithm="sha256"):
+    h = hashlib.new(algorithm)
+    try:
+        with open(path, "rb") as f:
+            while chunk := f.read(CHUNK_SIZE):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception as e:
+        return None
+
+
+def init_db(conn):
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS files (
+        path TEXT PRIMARY KEY,
+        checksum TEXT,
+        algo TEXT,
+        size INTEGER,
+        mtime REAL,
+        ctime REAL,
+        inode INTEGER,
+        device INTEGER,
+        mode INTEGER,
+        uid INTEGER,
+        gid INTEGER,
+        scanned_at TEXT
+    )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_checksum ON files(checksum)")
+    conn.commit()
+
+
+def upsert_file(conn, record):
+    conn.execute("""
+    INSERT INTO files (
+        path, checksum, algo, size, mtime, ctime,
+        inode, device, mode, uid, gid, scanned_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(path) DO UPDATE SET
+        checksum=excluded.checksum,
+        algo=excluded.algo,
+        size=excluded.size,
+        mtime=excluded.mtime,
+        ctime=excluded.ctime,
+        inode=excluded.inode,
+        device=excluded.device,
+        mode=excluded.mode,
+        uid=excluded.uid,
+        gid=excluded.gid,
+        scanned_at=excluded.scanned_at
+    """, record)
+
+
+def scan_directory(root, conn, algo):
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in filenames:
+            full_path = os.path.join(dirpath, name)
+
+            try:
+                stat = os.stat(full_path, follow_symlinks=False)
+            except Exception as e:
+                print(f"[WARN] stat failed: {full_path} ({e})", file=sys.stderr)
+                continue
+
+            checksum = compute_checksum(full_path, algo)
+
+            record = (
+                full_path,
+                checksum,
+                algo,
+                stat.st_size,
+                stat.st_mtime,
+                stat.st_ctime,
+                stat.st_ino,
+                stat.st_dev,
+                stat.st_mode,
+                stat.st_uid,
+                stat.st_gid,
+                datetime.utcnow().isoformat()
+            )
+
+            try:
+                upsert_file(conn, record)
+            except Exception as e:
+                print(f"[WARN] DB insert failed: {full_path} ({e})", file=sys.stderr)
+
+        conn.commit()  # commit per directory for durability
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Recursive file hasher to SQLite")
+    parser.add_argument("directory", help="Directory to scan")
+    parser.add_argument("--db", default="files.db", help="SQLite database file")
+    parser.add_argument("--algo", default="sha256", help="Hash algorithm (sha256, md5, etc.)")
+
+    args = parser.parse_args()
+
+    root = Path(args.directory)
+    if not root.is_dir():
+        print(f"Invalid directory: {root}", file=sys.stderr)
+        sys.exit(1)
+
+    conn = sqlite3.connect(args.db)
+    init_db(conn)
+
+    try:
+        scan_directory(root, conn, args.algo)
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()
