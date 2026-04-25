@@ -66,7 +66,8 @@ def upsert_file(conn, record):
 
 
 def scan_directory(root, conn, algo):
-    for dirpath, dirnames, filenames in os.walk(root):
+    abs_root = os.path.abspath(root)
+    for dirpath, dirnames, filenames in os.walk(abs_root):
         for name in filenames:
             full_path = os.path.join(dirpath, name)
 
