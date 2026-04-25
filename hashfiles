@@ -7,9 +7,41 @@ import argparse
 import sys
 from pathlib import Path
 from datetime import datetime, UTC
+import audio_metadata
+import glob
+from functools import reduce
+import socket
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB
 
+#audio_metadata.load("/home/rolfn/tmp/01.seventeen_come_sunday.flac")["streaminfo"]["md5"]
+#audio_metadata.load(glob.glob("/home/rolfn/tmp/02*")[0])["tags"]["usertext"][0]["description"]
+#recursive_get(audio_metadata.load("/home/rolfn/tmp/01.seventeen_come_sunday.flac"), "streaminfo", "md5")
+#if recursive_get(audio_metadata.load(glob.glob("/home/rolfn/tmp/02*")[0]), "tags", "usertext"):
+#    print("ja")
+#audio_metadata.load(glob.glob("/home/rolfn/tmp/07*")[0])["tags"]["usertext"][0]["description"]
+
+# Source - https://stackoverflow.com/a/28225747
+# Posted by Thomas Orozco, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-04-25, License - CC BY-SA 3.0
+
+def recursive_get(d, *keys):
+    return reduce(lambda c, k: c.get(k, {}), keys, d)
+
+def md5_metadata(filename):
+    if filename.endswith(".mp3") or filename.endswith(".flac"):
+        m = audio_metadata.load(filename)
+        streaminfo_md5 = recursive_get(m, "streaminfo", "md5")
+        if streaminfo_md5:
+            return streaminfo_md5
+        
+        usertext = recursive_get(m, "tags", "usertext")
+        if usertext:
+            for e in usertext:
+                if e["description"] == "MD5":
+                    return e["text"][0]
+
+    return None
 
 def compute_checksum(path, algorithm="sha256"):
     h = hashlib.new(algorithm)
@@ -25,9 +57,11 @@ def compute_checksum(path, algorithm="sha256"):
 def init_db(conn):
     conn.execute("""
     CREATE TABLE IF NOT EXISTS files (
-        path TEXT PRIMARY KEY,
+        path TEXT,
+        host TEXT,
         checksum TEXT,
         algo TEXT,
+        metadata_md5 TEXT,
         size BIGINT,
         mtime REAL,
         ctime REAL,
@@ -36,23 +70,29 @@ def init_db(conn):
         mode INTEGER,
         uid INTEGER,
         gid INTEGER,
-        scanned_at TEXT
+        scanned_at TEXT,
+        PRIMARY KEY(host,path)
     )
     """)
+
     conn.execute("CREATE INDEX IF NOT EXISTS idx_checksum ON files(checksum)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_host     ON files(host)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_md5      ON files(metadata_md5)")
     conn.commit()
 
   
 def upsert_file(conn, record):
     conn.execute("""
     INSERT INTO files (
-        path, checksum, algo, size, mtime, ctime,
+        path, host, checksum, algo, metadata_md5, size, mtime, ctime,
         inode, device, mode, uid, gid, scanned_at
     )
-    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    ON CONFLICT(path) DO UPDATE SET
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ON CONFLICT(host,path) DO UPDATE SET
         checksum=excluded.checksum,
+        host=excluded.host,
         algo=excluded.algo,
+        metadata_md5=excluded.metadata_md5,
         size=excluded.size,
         mtime=excluded.mtime,
         ctime=excluded.ctime,
@@ -67,6 +107,7 @@ def upsert_file(conn, record):
 
 def scan_directory(root, conn, algo):
     abs_root = os.path.abspath(root)
+    hostname = socket.gethostname()
     for dirpath, dirnames, filenames in os.walk(abs_root):
         for name in filenames:
             full_path = os.path.join(dirpath, name)
@@ -81,8 +122,10 @@ def scan_directory(root, conn, algo):
 
             record = (
                 full_path,
+                hostname,
                 checksum,
                 algo,
+                md5_metadata(full_path),
                 stat.st_size,
                 stat.st_mtime,
                 stat.st_ctime,
