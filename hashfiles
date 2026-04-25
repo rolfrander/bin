@@ -104,6 +104,13 @@ def upsert_file(conn, record):
         scanned_at=excluded.scanned_at
     """, record)
 
+def is_scanned(conn, hostname, path):
+    with conn.execute("select checksum from files where host=%s and path=%s", [hostname, path]) as cursor:
+        if cursor.rowcount > 0:
+            return True
+        else:
+            return False
+        
 
 def scan_directory(root, conn, algo):
     abs_root = os.path.abspath(root)
@@ -111,38 +118,32 @@ def scan_directory(root, conn, algo):
     for dirpath, dirnames, filenames in os.walk(abs_root):
         for name in filenames:
             full_path = os.path.join(dirpath, name)
+            if not is_scanned(conn, hostname, full_path):
+                try:
+                    stat = os.stat(full_path, follow_symlinks=False)
+                    checksum = compute_checksum(full_path, algo)
 
-            try:
-                stat = os.stat(full_path, follow_symlinks=False)
-            except Exception as e:
-                print(f"[WARN] stat failed: {full_path} ({e})", file=sys.stderr)
-                continue
+                    record = (
+                        full_path,
+                        hostname,
+                        checksum,
+                        algo,
+                        md5_metadata(full_path),
+                        stat.st_size,
+                        stat.st_mtime,
+                        stat.st_ctime,
+                        stat.st_ino,
+                        stat.st_dev,
+                        stat.st_mode,
+                        stat.st_uid,
+                        stat.st_gid,
+                        datetime.now(UTC).isoformat()
+                    )
+                    upsert_file(conn, record)
+                except Exception as e:
+                    print(f"[WARN] DB insert failed: {full_path} ({e})", file=sys.stderr)
 
-            checksum = compute_checksum(full_path, algo)
-
-            record = (
-                full_path,
-                hostname,
-                checksum,
-                algo,
-                md5_metadata(full_path),
-                stat.st_size,
-                stat.st_mtime,
-                stat.st_ctime,
-                stat.st_ino,
-                stat.st_dev,
-                stat.st_mode,
-                stat.st_uid,
-                stat.st_gid,
-                datetime.now(UTC).isoformat()
-            )
-
-            try:
-                upsert_file(conn, record)
-            except Exception as e:
-                print(f"[WARN] DB insert failed: {full_path} ({e})", file=sys.stderr)
-
-        conn.commit()  # commit per directory for durability
+            conn.commit()  # commit per directory for durability
 
 
 def main():
