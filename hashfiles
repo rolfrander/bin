@@ -28,7 +28,7 @@ def init_db(conn):
         path TEXT PRIMARY KEY,
         checksum TEXT,
         algo TEXT,
-        size INTEGER,
+        size BIGINT,
         mtime REAL,
         ctime REAL,
         inode INTEGER,
