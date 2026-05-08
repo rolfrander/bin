@@ -1,3 +1,0 @@
-#!/bin/bash
-
-curl -d "$*" ntfy.sh/hellerud_hard_disco
