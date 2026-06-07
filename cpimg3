@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/home/rolfn/.venv/cpimg/bin/python3
 
 import piexif
 import inotify.adapters
@@ -109,7 +109,7 @@ class Logger:
 class ImageMover(threading.Thread):
     WRITE_MASK = inotify.constants.IN_CLOSE_WRITE | inotify.constants.IN_MOVED_TO
 
-    re_date = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d) ")
+    re_date = re.compile(r"^(\d\d\d\d)-(\d\d)-(\d\d) ")
     dirmode = 0o775
     filemode = 0o444
     
