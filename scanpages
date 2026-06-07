@@ -1,0 +1,25 @@
+#!/bin/bash
+
+sleep=10
+i=0
+if [ "$1" != "" ]
+then
+    sleep=$1
+    shift
+fi
+
+if [ "$1" != "" ]
+then
+    i=$1
+    shift
+fi
+
+uri='hpaio:/net/HP_Color_LaserJet_MFP_M477fdw?hostname=skriver'
+
+while sleep $sleep
+do 
+file=$(printf "%03d.png" $i)
+echo "scanning to file $file"
+scanimage -d "$uri" --format=png --resolution=300 --mode=gray > $file
+i=$[i+1]
+done

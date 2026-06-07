@@ -1,0 +1,35 @@
+#!/usr/bin/perl
+
+use Image::ExifTool qw(:Public);
+
+$exif = new Image::ExifTool;
+$exif->Options(DateFormat => "%Y-%m-%dT%H:%M:%S");
+
+$src = $ARGV[0];
+opendir my($dh), $src or die "Couldn't open $src";
+my @files = readdir $dh;
+
+foreach(@files) {
+    if(/\.(cr2|jpg)$/) {
+	$success = $exif->ExtractInfo($_);
+	if(!$success) {
+	    print "error reading from $_\n";
+	} elsif($exif->GetValue("CreateDate")) {
+	    $date = $exif->GetValue("CreateDate");
+	    if($date =~ /^2014-(.*)/) {
+		$date = "2015-" . $1;
+		print "write new date $date to $_\n";
+
+		# ModifyDate=2014:12:25 13:58:52
+		# DateTimeOriginal=2014:12:25 13:58:52
+		# CreateDate=2014:12:25 13:58:52
+		$exif->SetNewValue("ModifyDate", $date);
+		$exif->SetNewValue("DateTimeOriginal", $date);
+		$exif->SetNewValue("CreateDate", $date);
+		$exif->WriteInfo($_);		
+	    }
+	} else {
+	    print "no CreateDate in $_\n";
+	}
+    }
+}

@@ -1,0 +1,8 @@
+#!/bin/bash
+
+output=$1
+shift
+HandBrakeCLI -i /dev/sr0 \
+             -o "/home/media/movies/movie/$output.mkv" \
+             -m -e x264 -b 2000 -E ac3,dts $*
+

@@ -1,0 +1,134 @@
+#!/bin/bash
+
+#BAK_DIR="~/tmp/bak"
+#BAK_SUFF="~"
+#BLK_SIZE=700
+
+# These two are equivalent
+#RSYNC_RSH="ssh"
+RSH_CMD="ssh"
+
+#RSYNC_PATH="/store/bin/rsync"
+#MAX_DELETE=50
+TIMEOUT=60
+#TMP_DIR="/tmp"
+#COMPARE_DEST=""
+EXCLUDE="*~"
+#EXCLUDE_FILE=""
+#INCLUDE=""
+#INCLUDE_FILE=""
+#CONFIG_FILE=""
+#PORT=""
+#LOG_FORMAT=""
+#PASSWORD_FILE=""
+
+if [ -f .sync ] 
+then cfg=$(< .sync)
+fi
+
+# rsync options:
+opt=""
+
+opt="$opt --verbose"            #increase verbosity
+# opt="$opt --quiet"              #decrease verbosity
+# opt="$opt --checksum"           #always checksum
+opt="$opt --archive"            #archive mode
+# opt="$opt --recursive"          #recurse into directories
+# opt="$opt --relative"           #use relative path names
+# opt="$opt --backup"             #make backups (default ~ suffix)
+opt="$opt --update"             #update only (don't overwrite newer files)
+# opt="$opt --links"              #preserve soft links
+# opt="$opt --copy-links"         #treat soft links like regular files
+# opt="$opt --copy-unsafe-links"  #copy links outside the source tree
+# opt="$opt --safe-links"         #ignore links outside the destination tree
+# opt="$opt --hard-links"         #preserve hard links
+# opt="$opt --perms"              #preserve permissions
+# opt="$opt --owner"              #preserve owner (root only)
+# opt="$opt --group"              #preserve group
+# opt="$opt --devices"            #preserve devices (root only)
+opt="$opt --times"              #preserve times
+# opt="$opt --sparse"             #handle sparse files efficiently
+# opt="$opt --dry-run"            #show what would have been transferred
+# opt="$opt --whole-file"         #copy whole files, no incremental checks
+# opt="$opt --one-file-system"    #don't cross filesystem boundaries
+opt="$opt --cvs-exclude"        #auto ignore files in the same way CVS does
+# opt="$opt --existing"           #only update files that already exist
+# opt="$opt --delete"             #delete files that don't exist on the 
+# 				  #sending side
+# opt="$opt --delete-excluded"    #also delete excluded files on the 
+# 				  #receiving side
+# opt="$opt --delete-after"       #delete after transferring, not before
+# opt="$opt --ignore-errors"      #delete even if there are IO errors
+# opt="$opt --partial"            #keep partially transferred files
+# opt="$opt --force"              #force deletion of directories even 
+# 				  #if not empty
+opt="$opt --numeric-ids"        #don't map uid/gid values by user/group name
+# opt="$opt --ignore-times"       #don't exclude files that match length 
+# 				  #and time
+# opt="$opt --size-only"          #only use file size when determining 
+# 				  #if a file should be transferred
+# opt="$opt -P"                   #equivalent to --partial --progress
+opt="$opt --compress"           #compress file data
+# opt="$opt --version"            #print version number
+# opt="$opt --daemon"             #run as a rsync daemon
+# opt="$opt --address"            #bind to the specified address
+opt="$opt --stats"              #give some file transfer stats
+opt="$opt --progress"           #show progress during transfer
+# opt="$opt --help"               #show this help screen
+
+
+if [ ! "$BAK_DIR" = "" ]; then
+  opt="$opt --backup-dir=$BAK_DIR" # set backup-directory
+fi
+if [ ! "$BAK_SUFF" = "" ]; then
+  opt="$opt --suffix=$BAK_SUFF"   #override backup suffix
+fi
+if [ ! "$BLKSIZE" = "" ]; then
+  opt="$opt --block-size=$BLKSIZE" #checksum blocking size (default 700)
+fi
+if [ ! "$RSH_CMD" = "" ]; then
+  opt="$opt --rsh=$RSH_CMD"       #specify rsh replacement
+fi
+if [ ! "$RSYNC_PATH" = "" ]; then
+  opt="$opt --rsync-path=$RSYNC_PATH" #specify path to rsync on remote machine
+fi
+if [ ! "$MAX_DELETE" = "" ]; then
+  opt="$opt --max-delete=$MAX_DELETE" #don't delete more than NUM files
+fi
+if [ ! "$TIMEOUT" = "" ]; then
+  opt="$opt --timeout=$TIMEOUT"   #set IO timeout in seconds
+fi
+if [ ! "$TMP_DIR" = "" ]; then
+  opt="$opt --temp-dir=$TMP_DIR"  #create temporary files in directory DIR
+fi
+if [ ! "$COMPARE_DEST" = "" ]; then
+  opt="$opt --compare-dest=$COMPARE_DEST" #also compare destination
+                                #files relative to DIR
+fi
+if [ ! "$EXCLUDE" = "" ]; then
+  opt="$opt --exclude=$EXCLUDE"   #exclude files matching PATTERN
+fi
+if [ ! "$EXCLUDE_FILE" = "" ]; then
+  opt="$opt --exclude-from=$EXCLUDE_FILE"  #exclude patterns listed in FILE
+fi
+if [ ! "$INCLUDE" = "" ]; then
+  opt="$opt --include=$INCLUDE"    #don't exclude files matching PATTERN
+fi
+if [ ! "$INCLUDE_FILE" = "" ]; then
+  opt="$opt --include-from=$INCLUDE_FILE"  #don't exclude patterns listed in FILE
+fi
+if [ ! "$CONFIG_FILE" = "" ]; then
+  opt="$opt --config=$CONFIG_FILE" #specify alternate rsyncd.conf file
+fi
+if [ ! "$PORT" = "" ]; then
+  opt="$opt --port=$PORT"         #specify alternate rsyncd port number
+fi
+if [ ! "$LOG_FORMAT" = "" ]; then
+  opt="$opt --log-format=$LOG_FORMAT" #log file transfers using specified format
+fi
+if [ ! "$PASSWORD_FILE" = "" ]; then
+  opt="$opt --password-file=$PASSWORD_FILE" #get password from FILE
+fi
+
+
+rsync $opt $* $cfg

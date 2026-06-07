@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+
+host=$1
+
+awk "/ $host\./{print \$1 ; exit ; }" < /etc/ethers | xargs echo wakeonlan

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+cd /data/img/backups
+
+while true
+do
+    inotifywait --include '.*\.zip' -e moved_to -e create .
+
+    find . -name \*.zip | while read f
+    do
+    rclone copy --progress --s3-storage-class=GLACIER "$f" "scaleway:rolfrander-img"
+    done
+
+done

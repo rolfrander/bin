@@ -1,0 +1,47 @@
+#!/usr/bin/perl
+
+use POSIX qw( strftime );
+use Image::ExifTool qw(:Public);
+use File::stat;
+use File::Copy;
+use File::Path;
+use File::Find;
+use Cwd;
+
+$exif = new Image::ExifTool;
+$exif->Options(DateFormat => "/data/img/%Y/%m/%d");
+
+sub wanted {
+    if(/\.([Jj][Pp][Gg]|[Cc][Rr]2)$/s) {
+	$info = $exif->ImageInfo($_, "CreateDate");
+	if($$info{"CreateDate"}) {
+	    $dst = $$info{"CreateDate"};
+	} elsif(/^(\d\d\d\d)-(\d\d)-(\d\d) /) {
+	    $dst = "/data/img/$1/$2/$3";
+	} elsif(/^([Pp]icture|[Vv]ideo|[Pp]hoto) (\d\d)\.(\d\d)\.(\d\d)/) {
+	    $dst = "/data/img/20$4/$3/$2";
+	} else {
+	    $ctime = stat("$src/$filename")->ctime;
+	    $dst = strftime("/data/img/%Y/%m/%d", localtime($ctime));
+	}
+	if($dst ne $File::Find::dir) {
+	    $alt="/tmp/does-not-exists.foo";
+	    if(/photo ([0-9]{2})\.([0-9]{2})\.([0-9]{2}) ([0-9]{2}) ([0-9]{2}) ([0-9]{2})\.(.*)/) {
+		$alt="20$3-$2-$1 $4.$5.$6.$7";
+	    }
+	    if((-e "$dst/$_") || (-e "$dst/$alt")) {
+		print "$File::Find::name duplicate from $dst, remove\n";
+		unlink $File::Find::name
+	    } else {
+		print "$File::Find::name should be in $dst\n";
+		move($File::Find::name, $dst);
+	    }
+	}
+    }
+}
+
+$dir = $ARGV[0] || getcwd;
+print "starting in $dir\n";
+
+find(\&wanted, $dir);
+

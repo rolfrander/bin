@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# creates a contact sheet in html for a directory of thumbnails
+
+(
+  cat start.html
+  ls thumb/ | while read f
+    do echo "<span class=\"frame\"><img src=\"thumb/$f\"> $f</span>"
+  done
+  cat end.html
+) > index.html

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+cd $HOME/ca
+
+openssl x509 -req -extfile client.conf -days 365 -CA ca_1.crt -CAkey ca_1.key -in - -out -

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if (( $# < 3))
+then
+    echo "Usage: $0 <start-dir> <include-filter> <scaleway-bucket>"
+    exit 1
+fi
+
+cd $1
+
+class="--s3-storage-class=GLACIER"
+bwlimit="--bwlimit=10M"
+chunksize="--s3-chunk-size=100M"
+rclone copy --progress $class "$bwlimit" $chunksize --include "$2" . "scaleway:$3"
