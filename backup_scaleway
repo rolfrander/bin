@@ -1,16 +1,15 @@
 #!/bin/bash
 
-cd /data/img
 if [ -z "$1" -o \! -d "$1" ]
 then
-    echo "Usage: $0 [year]"
-    exit 1
+    echo "Usage: $0 <year> [year...]"
+else
+    cd /srv/img
+    while (( $# > 0 ))
+    do
+        rclone copy --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" 
+        echo "rclone $1 done, return code $?"
+        shift
+    done
 fi
 
-#zip -r -1 "$1.zip" "$1"
-
-date +"*** Starting backup_scaleway on %Y-%m-%d %H:%M:%S" >> $HOME/.backup.log 2>&1
-
-rclone copy --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" >> $HOME/.backup.log 2>&1
-
-date +"*** Done backup_scaleway on %Y-%m-%d %H:%M:%S" >> $HOME/.backup.log 2>&1
