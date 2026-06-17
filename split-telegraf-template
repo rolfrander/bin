@@ -1,0 +1,22 @@
+#!/usr/bin/awk -f
+
+/^# *\[\[/ {
+    title = $0
+    gsub(/# *\[\[/, "", title)
+    gsub(/\]\]/, "", title)
+    file = tolower(title) ".conf"
+}
+/^ *$/ && file {
+    prefix=null
+    file=null
+}
+/^#/ && !file {
+    prefix = $0
+}
+file {             
+    if(prefix) {
+        print prefix > file
+        prefix=null
+    }
+    print > file
+} 
