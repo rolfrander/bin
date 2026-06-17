@@ -1,0 +1,20 @@
+#!/bin/bash
+
+dir=$(mktemp -d -p /var/tmp)
+
+cat > $dir/build.sh <<EOF
+cd /tmp
+runuser -u nobody -- git clone https://aur.archlinux.org/$1.git
+cd $1
+runuser -u nobody -- makepkg -s
+cp *.pkg.tar.zst /mnt
+EOF
+
+docker run -ti --rm -v $dir:/mnt greyltc/archlinux-aur /bin/bash /mnt/build.sh
+
+echo $dir
+ls -1 $dir
+scp $dir/*.pkg.tar.zst borg:/srv/arch/x86_64
+
+echo "run on borg:"
+echo "repo-add hellerud.db.tar.gz *.pkg.tar.zst"
