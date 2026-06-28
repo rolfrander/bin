@@ -14,6 +14,31 @@ import socket
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB
 
+# hente ut filer som finnes i data men ikke i backup
+#   create temp table data as
+#   (select coalesce(metadata_md5,checksum) as checksum,path 
+#      from files
+#     where host='hall' 
+#       and path like '/data/music/%'  
+#       and not path like '/data/music/lydbok/%'
+#       and not path like '/data/music/podcasts/%'
+#   );
+#   
+#   create index temp_data_chksum on data(checksum);
+#   
+#   create temp table backup as
+#   (select coalesce(metadata_md5,checksum) as checksum,path from files where host='hall' and path like '/mnt/seagate_backup/@data/music/%');
+#   
+#   create index temp_backup_chksum on backup(checksum);
+#   
+#   create table missing_files as 
+#   (select data.path as file from data left outer join backup using (checksum)
+#     where backup.path is null
+#     order by data.path
+#   )
+#   ;
+
+
 #audio_metadata.load("/home/rolfn/tmp/01.seventeen_come_sunday.flac")["streaminfo"]["md5"]
 #audio_metadata.load(glob.glob("/home/rolfn/tmp/02*")[0])["tags"]["usertext"][0]["description"]
 #recursive_get(audio_metadata.load("/home/rolfn/tmp/01.seventeen_come_sunday.flac"), "streaminfo", "md5")

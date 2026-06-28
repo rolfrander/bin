@@ -7,4 +7,5 @@ nightcode*
 dnspython3*
 .clj-kondo
 .lsp
+.calva
 dbus-tap
