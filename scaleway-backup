@@ -1,15 +1,31 @@
 #!/bin/bash
 
-if [ -z "$1" -o \! -d "$1" ]
+if (( $# == 0 ))
 then
     echo "Usage: $0 <year> [year...]"
-else
-    cd /srv/img
-    while (( $# > 0 ))
-    do
-        rclone copy --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" 
-        echo "rclone $1 done, return code $?"
-        shift
-    done
+    exit 1
 fi
+
+cd /srv/img
+error=0
+
+for y in $*
+do
+    if [ \! -d "$y" ]
+    then
+        echo "$y is not a valid year, does not exist in $PWD"
+        error=2
+    fi
+done
+
+if (( $error > 0 ))
+then exit $error
+fi
+
+while (( $# > 0 ))
+do
+    rclone copy --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" 
+    echo "rclone $1 done, return code $?"
+    shift
+done
 
