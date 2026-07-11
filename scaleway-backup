@@ -24,7 +24,7 @@ fi
 
 while (( $# > 0 ))
 do
-    rclone copy --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" 
+    rclone copy --stats-one-line --s3-storage-class=STANDARD $1 "scaleway:rolfrander-img/$1/" 
     echo "rclone $1 done, return code $?"
     shift
 done
